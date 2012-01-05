@@ -1177,7 +1177,12 @@ if(cljs.core.truth_(and__3546__auto____4573))
 {return cljs.core.not.call(null,(function (pnod,etime){
 var op__4574 = goog.style.getOpacity.call(null,pnod);
 
-return (op__4574 <= 0);
+if(cljs.core.truth_(((op__4574 - incr__4570) <= 0)))
+{goog.style.setOpacity.call(null,pnod,0);
+return true;
+} else
+{return false;
+}
 }).call(null,pnod__2591__auto__,(enfocus.core.get_mills.call(null) - start__2593__auto____4571)));
 } else
 {return and__3546__auto____4573;
@@ -1243,7 +1248,12 @@ if(cljs.core.truth_(and__3546__auto____4583))
 {return cljs.core.not.call(null,(function (pnod,etime){
 var op__4584 = goog.style.getOpacity.call(null,pnod);
 
-return (op__4584 >= 1);
+if(cljs.core.truth_(((op__4584 + incr__4580) >= 1)))
+{goog.style.setOpacity.call(null,pnod,1);
+return true;
+} else
+{return false;
+}
 }).call(null,pnod__2591__auto__,(enfocus.core.get_mills.call(null) - start__2593__auto____4581)));
 } else
 {return and__3546__auto____4583;
