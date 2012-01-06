@@ -12781,9 +12781,12 @@ enfocus.core.en_listen = function en_listen(b, c) {
 };
 enfocus.core.en_remove_listener = function() {
   var a = function(a) {
-    return enfocus.core.chainable_standard.call(null, function(b) {
+    var b = function(a) {
+      return cljs.core.name.call(null, cljs.core.truth_(cljs.core._EQ_.call(null, a, "\ufdd0'mouseenter")) ? "\ufdd0'mouseover" : cljs.core.truth_(cljs.core._EQ_.call(null, a, "\ufdd0'mouseleave")) ? "\ufdd0'mouseout" : cljs.core.truth_("\ufdd0'else") ? a : null)
+    };
+    return enfocus.core.chainable_standard.call(null, function(e) {
       return cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        return goog.events.removeAll.call(null, b, cljs.core.name.call(null, a))
+        return goog.events.removeAll.call(null, e, b.call(null, a))
       }, a))
     })
   }, b = function(b) {
