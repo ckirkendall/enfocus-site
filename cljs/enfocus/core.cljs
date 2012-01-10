@@ -222,19 +222,16 @@
 ; taking the a set of nodes from a selector
 ;####################################################
 
-(defn multi-node-proc 
+(defn extr-multi-node 
   "takes a function an returns a function that
    applys a given function on all nodes returned
    by a given selector"
-  ([func] (multi-node-proc func nil))
-  ([func callback1]
-    (fn trans 
-      ([pnodes] (trans pnodes nil))
-      ([pnodes callback2]
-        (let [pnod-col (nodes->coll pnodes)
-              cnt (atom (count pnod-col))
-              ] 
-          (doall (map func pnod-col )))))))
+  [func]
+  (fn trans 
+    [pnodes] 
+    (let [pnod-col (nodes->coll pnodes)
+          result (doall (map func pnod-col ))] 
+      (if (<= (count result) 1) (first result) result))))
 
 (defn chainable-standard 
   "takes a function an returns a function that
@@ -305,7 +302,7 @@
   "Assocs attributes and values on the selected element."
   [& values] 
   (let [at-lst (partition 2 values)]
-    (multi-node-proc 
+    (chainable-standard 
       (fn[pnod]
         (doall (map (fn [[a v]] (. pnod (setAttribute (name a) v))) at-lst))))))
 
@@ -313,7 +310,7 @@
 (defn en-remove-attr 
   "Dissocs attributes on the selected element."
   [& values] 
-  (multi-node-proc 
+  (chainable-standard 
     (fn[pnod]
       (doall (map #(. pnod (removeAttribute (name %))) values)))))
 
@@ -520,14 +517,16 @@
   (let [incr (/ 1 (/ ttime step))]
     (em/effect step :fade-out [:fade-in] callback
                (fn [pnod etime] 
-                 (let [op (style/getOpacity pnod)] 
+                 (let [op (style/getOpacity pnod)
+                       op (if (or (= op js/undefined) (= "" op)) 1 op)]
                    (if (<= (- op incr) 0) 
                      (do
                        (style/setOpacity pnod 0)
                        true)
                      false)))
                (fn [pnod]
-                 (let [op (style/getOpacity pnod)]
+                 (let [op (style/getOpacity pnod)
+                       op (if (= op js/undefined) 1 op)]
                    (cond
                      (= "" op) (style/setOpacity pnod (- 1 incr))
                      (< 0 op) (style/setOpacity pnod (- op incr))))))))
@@ -650,6 +649,79 @@
                    (style/setPosition pnod (.x clone) (.y clone)))))))              
 
 
+
+;##################################################################
+; data extractors
+;##################################################################
+
+(defn en-get-attr 
+  "returns the attribute on the selected element or elements.
+   in cases where more than one element is selected you will
+   receive a list of values"
+  [attr] 
+  (extr-multi-node 
+    (fn[pnod]
+      (. pnod (getAttribute (name attr))))))
+
+(defn en-get-text
+  "returns the attribute on the selected element or elements.
+   in cases where more than one element is selected you will
+   receive a list of values"
+  [] 
+  (extr-multi-node 
+    (fn[pnod]
+      (dom/getTextContent pnod))))
+
+
+
+;##################################################################
+; filtering - these funcitons are to make up for choosing
+; css3 selectors as our selectors, not everything can 
+; be selected with css selectors in all browser so this
+; provides an abstract way to add additional selection
+; criteria
+;##################################################################
+
+;registerd filter that can be refrenced by keyword
+(def reg-filt (atom {}))
+
+(defn en-filter 
+  "filter allows you to apply function to futhur scope
+   down what is returned by a selector"
+  [tst trans]
+  (fn filt
+    ([pnodes] (filt pnodes nil))
+    ([pnodes chain]
+      (let [pnod-col (nodes->coll pnodes)
+            ttest (if (keyword? tst) (@reg-filt tst) tst)
+            res (filter ttest pnod-col)]
+        (log-debug (pr-str res))
+        (if (nil? chain) 
+          (trans res)
+          (trans res chain))))))
+
+(defn register-filter 
+  "registers a filter for a given keyword"
+  [ky func]
+  (swap! reg-filt assoc ky func))
+
+(defn selected-options 
+  "takes a list of options and returns the selected ones
+   will return an empty list if passed nodes that are 
+   no options"
+  [pnod]
+  (.selected pnod))
+
+(defn checked-radio-checkbox 
+  "takes a list of options and returns the selected ones
+   will return an empty list if passed nodes that are 
+   no options"
+  [pnod]
+  (.checked pnod))
+
+(register-filter :selected selected-options)
+(register-filter :checked checked-radio-checkbox)
+
 ;##################################################################
 ; functions involved in processing the selectors
 ;##################################################################
@@ -671,6 +743,7 @@
 (defn css-select 
   "takes either an enlive selector or a css3 selector and
    returns a set of nodes that match the selector"
+  ([css-sel] (css-select "" js/document css-sel))
   ([dom-node css-sel] (css-select "" dom-node css-sel))
   ([id-scope-sym dom-node css-sel]
     (let [sel (string/trim (string/replace (create-sel-str id-scope-sym css-sel) " :" ":"))
