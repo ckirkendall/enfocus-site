@@ -13120,6 +13120,11 @@ enfocus.core.en_get_attr = function(a) {
     return b.getAttribute(cljs.core.name.call(null, a))
   })
 };
+enfocus.core.en_get_attr = function(a) {
+  return enfocus.core.extr_multi_node.call(null, function(b) {
+    return b.getAttribute(cljs.core.name.call(null, a))
+  })
+};
 enfocus.core.en_get_text = function() {
   return enfocus.core.extr_multi_node.call(null, function(a) {
     return goog.dom.getTextContent.call(null, a)
@@ -13427,7 +13432,7 @@ enfocus.demo.site.gstarted_page = function() {
       return document
     }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button2"])));
     enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.clone_for_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button3"])));
-    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_attr_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button4"])));
+    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_prop_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button4"])));
     return a
   }, a));
   return document
@@ -14123,19 +14128,33 @@ enfocus.demo.site.doc_from = function() {
   }]), b = cljs.core.nth.call(null, a, 0, null), a = cljs.core.nth.call(null, a, 1, null), a = cljs.core.truth_(!0) ? enfocus.core.create_hidden_dom.call(null, a) : a;
   return cljs.core.truth_(!0) ? (enfocus.core.reset_ids.call(null, b, a), enfocus.core.remove_node_return_child.call(null, a)) : a
 };
-enfocus.demo.site.get_attr_demo = function() {
+enfocus.demo.site.get_prop_demo = function() {
   var a = function() {
     var a = enfocus.core.nodes__GT_coll.call(null, document), b = cljs.core.atom.call(null, cljs.core.ObjMap.fromObject([], {}));
     cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-      cljs.core.swap_BANG_.call(null, b, cljs.core.assoc, "\ufdd0'field1", enfocus.core.en_get_attr.call(null, "\ufdd0'value").call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-attr-field1"]))));
-      cljs.core.swap_BANG_.call(null, b, cljs.core.assoc, "\ufdd0'field2", enfocus.core.en_get_attr.call(null, "\ufdd0'value").call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-attr-field2"]))));
+      cljs.core.swap_BANG_.call(null, b, cljs.core.assoc, "\ufdd0'field1", enfocus.core.extr_multi_node.call(null, function(a) {
+        return a.value
+      }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-prop-field1"]))));
+      cljs.core.swap_BANG_.call(null, b, cljs.core.assoc, "\ufdd0'field2", enfocus.core.extr_multi_node.call(null, function(a) {
+        return a.value
+      }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-prop-field2"]))));
       cljs.core.swap_BANG_.call(null, b, cljs.core.assoc, "\ufdd0'field3", enfocus.core.en_filter.call(null, function(a) {
         return a.checked
-      }, enfocus.core.en_get_attr.call(null, "\ufdd0'value")).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["input[name='get-attr-field3']"]))));
+      }, enfocus.core.extr_multi_node.call(null, function(a) {
+        return a.value
+      })).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["input[name='get-prop-field3']"]))));
       return a
     }, a));
     return cljs.core.deref.call(null, b)
   }(), b = enfocus.core.nodes__GT_coll.call(null, document);
+  cljs.core.doall.call(null, cljs.core.map.call(null, function(b) {
+    enfocus.core.en_content.call(null, cljs.core.pr_str.call(null, a)).call(null, enfocus.core.css_select.call(null, "", b, cljs.core.Vector.fromArray(["#get-prop-demo"])));
+    return b
+  }, b));
+  return document
+};
+enfocus.demo.site.get_attr_demo = function() {
+  var a = enfocus.core.en_get_attr.call(null, "\ufdd0'src").call(null, enfocus.core.css_select.call(null, cljs.core.Vector.fromArray(["#get-attr-img"]))), b = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(b) {
     enfocus.core.en_content.call(null, cljs.core.pr_str.call(null, a)).call(null, enfocus.core.css_select.call(null, "", b, cljs.core.Vector.fromArray(["#get-attr-demo"])));
     return b
@@ -14143,7 +14162,7 @@ enfocus.demo.site.get_attr_demo = function() {
   return document
 };
 enfocus.demo.site.get_text_demo = function() {
-  var a = enfocus.core.en_get_text.call(null).call(null, enfocus.core.css_select.call(null, cljs.core.Vector.fromArray(["#button2"]))), b = enfocus.core.nodes__GT_coll.call(null, document);
+  var a = enfocus.core.en_get_text.call(null).call(null, enfocus.core.css_select.call(null, cljs.core.Vector.fromArray(["#button3"]))), b = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(b) {
     enfocus.core.en_content.call(null, a).call(null, enfocus.core.css_select.call(null, "", b, cljs.core.Vector.fromArray(["#get-text-demo"])));
     return b
@@ -14165,6 +14184,14 @@ enfocus.demo.site.doc_from_page = function() {
     enfocus.core.en_listen.call(null, "\ufdd0'click", function() {
       var a = enfocus.core.nodes__GT_coll.call(null, document);
       cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
+        enfocus.demo.site.scroll_to.call(null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#doc-get-prop"])));
+        return a
+      }, a));
+      return document
+    }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-prop-link"])));
+    enfocus.core.en_listen.call(null, "\ufdd0'click", function() {
+      var a = enfocus.core.nodes__GT_coll.call(null, document);
+      cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
         enfocus.demo.site.scroll_to.call(null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#doc-get-attr"])));
         return a
       }, a));
@@ -14178,8 +14205,9 @@ enfocus.demo.site.doc_from_page = function() {
       }, a));
       return document
     }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#get-text-link"])));
-    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_attr_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button1"])));
-    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_text_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button2"])));
+    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_prop_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button1"])));
+    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_attr_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button2"])));
+    enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.get_text_demo).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#button3"])));
     return a
   }, a));
   return document
