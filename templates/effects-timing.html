@@ -16,17 +16,19 @@ when the exact value is not known.</p>
 <pre>
 (resize width height)
 or
-(resize width height total-time step-in-mills)
+(resize width height total-time)
 or
-(resize width height total-time step (fn callbk [node] ..))
+(resize width height total-time (fn callbk [node] ..))
+or
+(resize width height total-time (fn callbk [node] ..) accelerator)
 </pre>
 <p>Example: <button id="button1">click me</button></p>
 <div id="rz-demo" style="width: 5px; height: 10px; background-color: #33ff33;"> </div>
 <p>The following action is triggered when we click the button</p>
 <pre>
 (em/defaction resize-demo [] 
-  ["#rz-demo"] (em/resize 200 :curheight 500 20
-                 (em/resize 5 :curheight 500 20)))                 
+  ["#rz-demo"] (em/resize 200 :curheight 500
+                 (em/resize 5 :curheight 500)))                 
 </pre>
 <p>Notice in the above example, I am using the callback to call another <em>resize</em> transform.</p>
 
@@ -39,17 +41,19 @@ when the exact value is not known</p>
 <pre>
 (move x y)
 or
-(move x y total-time step-in-mills)
+(move x y total-time)
 or
-(move x y total-time step (fn callbk [node] ..))
+(move x y total-time (fn callbk [node] ..))
+or
+(move x y total-time (fn callbk [node] ..) accelerator)
 </pre>
 <p>Example: <button id="button2">click me</button></p>
 <div id="mv-demo" style="position: fixed; top: 50%; left: -20px; width: 20px; height: 20px; background-color: #33ff33;"> </div>
 <p>The following action is triggered when we click the button</p>
 <pre>
 (em/defaction move-demo [] 
-  ["#mv-demo"] (em/move 300 :cury 500 20
-                 (em/move -20 :cury 500 20)))
+  ["#mv-demo"] (em/move 300 :cury 500
+                 (em/move -20 :cury 500)))
                    
 </pre>
 <p>Notice in the above example, I am using the callback to call another <em>move</em> transform.</p>
@@ -59,17 +63,19 @@ or
 opacity to 0 and 1, respectively, over a specific time frame and step size.<p>
 <p>Note: There are plans to replace fade-in and fade-out, with a change-opacity effect, so use with caution.</p>
 <pre>
-(fade-in total-time step-in-mills)
+(fade-in total-time)
 or
-(fade-in total-time step (fn callbk [node] ..))
+(fade-in total-time (fn callbk [node] ..))
+or
+(fade-in total-time (fn callbk [node] ..) accelerator)
 </pre>
 <p>Example: <button id="button3">click me</button></p>
 <div id="fade-demo" style="width: 50px; height: 50px; background-color: #33ff33;"> </div>
 <p>The following action is triggered when we click the button</p>
 <pre>
 (em/defaction fade-demo [] 
-  ["#fade-demo"] (em/fade-out 500 20
-                   (em/fade-in 500 20)))
+  ["#fade-demo"] (em/fade-out 500
+                   (em/fade-in 500)))
 </pre>
 <p>Notice in the above example, I am using the callback of fade-out to call another <em>fade-in</em> transform.</p>
 
@@ -83,8 +89,8 @@ or
 <p>The following action is triggered when we click the button</p>
 <pre>
 (em/defaction delay-demo [] 
-  ["#delay-demo"] (em/do-> (em/resize 200 :curheight 500 20)
-                           (em/delay 2000 (em/resize 50 :curheight 500 20))))
+  ["#delay-demo"] (em/do-> (em/resize 200 :curheight 500)
+                           (em/delay 2000 (em/resize 50 :curheight 500))))
 </pre>
 
 <h3 id="doc-chain">Transform: <em>chain</em></h3>
@@ -98,6 +104,6 @@ so one effect will start after the previous effect has finished.<p>
 <p>The following action is triggered when we click the button</p>
 <pre>
 (em/defaction chain-demo [] 
-  ["#chain-demo"] (em/chain (em/resize 200 :curheight 500 20)
-                            (em/resize 5 :curheight 500 20)))
+  ["#chain-demo"] (em/chain (em/resize 200 :curheight 500)
+                            (em/resize 5 :curheight 500)))
 </pre>

@@ -690,7 +690,7 @@ goog.string.compareVersions = function(a, b) {
       if(0 == m[0].length && 0 == l[0].length) {
         break
       }
-      var c = 0 == m[1].length ? 0 : parseInt(m[1], 10), n = 0 == l[1].length ? 0 : parseInt(l[1], 10), c = goog.string.compareElements_(c, n) || goog.string.compareElements_(0 == m[2].length, 0 == l[2].length) || goog.string.compareElements_(m[2], l[2])
+      var c = 0 == m[1].length ? 0 : parseInt(m[1], 10), p = 0 == l[1].length ? 0 : parseInt(l[1], 10), c = goog.string.compareElements_(c, p) || goog.string.compareElements_(0 == m[2].length, 0 == l[2].length) || goog.string.compareElements_(m[2], l[2])
     }while(0 == c)
   }
   return c
@@ -4022,6 +4022,184 @@ goog.string.StringBuffer.prototype.toString = function() {
   }
   return this.buffer_
 };
+goog.fx = {};
+goog.fx.Animation = function(a, b, c, d) {
+  goog.events.EventTarget.call(this);
+  if(!goog.isArray(a) || !goog.isArray(b)) {
+    throw Error("Start and end parameters must be arrays");
+  }
+  if(a.length != b.length) {
+    throw Error("Start and end points must be the same length");
+  }
+  this.startPoint = a;
+  this.endPoint = b;
+  this.duration = c;
+  this.accel_ = d;
+  this.coords = []
+};
+goog.inherits(goog.fx.Animation, goog.events.EventTarget);
+goog.fx.Animation.EventType = {PLAY:"play", BEGIN:"begin", RESUME:"resume", END:"end", STOP:"stop", FINISH:"finish", PAUSE:"pause", ANIMATE:"animate", DESTROY:"destroy"};
+goog.fx.Animation.State = {STOPPED:0, PAUSED:-1, PLAYING:1};
+goog.fx.Animation.TIMEOUT = 20;
+goog.fx.Animation.activeAnimations_ = {};
+goog.fx.Animation.globalTimer_ = null;
+goog.fx.Animation.cycleAnimations_ = function() {
+  goog.Timer.defaultTimerObject.clearTimeout(goog.fx.Animation.globalTimer_);
+  var a = goog.now(), b;
+  for(b in goog.fx.Animation.activeAnimations_) {
+    goog.fx.Animation.activeAnimations_[b].cycle(a)
+  }
+  goog.fx.Animation.globalTimer_ = goog.object.isEmpty(goog.fx.Animation.activeAnimations_) ? null : goog.Timer.defaultTimerObject.setTimeout(goog.fx.Animation.cycleAnimations_, goog.fx.Animation.TIMEOUT)
+};
+goog.fx.Animation.registerAnimation = function(a) {
+  var b = goog.getUid(a);
+  b in goog.fx.Animation.activeAnimations_ || (goog.fx.Animation.activeAnimations_[b] = a);
+  if(!goog.fx.Animation.globalTimer_) {
+    goog.fx.Animation.globalTimer_ = goog.Timer.defaultTimerObject.setTimeout(goog.fx.Animation.cycleAnimations_, goog.fx.Animation.TIMEOUT)
+  }
+};
+goog.fx.Animation.unregisterAnimation = function(a) {
+  a = goog.getUid(a);
+  delete goog.fx.Animation.activeAnimations_[a];
+  if(goog.fx.Animation.globalTimer_ && goog.object.isEmpty(goog.fx.Animation.activeAnimations_)) {
+    goog.Timer.defaultTimerObject.clearTimeout(goog.fx.Animation.globalTimer_), goog.fx.Animation.globalTimer_ = null
+  }
+};
+goog.fx.Animation.prototype.state_ = goog.fx.Animation.State.STOPPED;
+goog.fx.Animation.prototype.fps_ = 0;
+goog.fx.Animation.prototype.progress = 0;
+goog.fx.Animation.prototype.startTime = null;
+goog.fx.Animation.prototype.endTime = null;
+goog.fx.Animation.prototype.lastFrame = null;
+goog.fx.Animation.prototype.getStateInternal = function() {
+  return this.state_
+};
+goog.fx.Animation.prototype.play = function(a) {
+  if(a || this.state_ == goog.fx.Animation.State.STOPPED) {
+    this.progress = 0, this.coords = this.startPoint
+  }else {
+    if(this.state_ == goog.fx.Animation.State.PLAYING) {
+      return!1
+    }
+  }
+  goog.fx.Animation.unregisterAnimation(this);
+  this.startTime = goog.now();
+  this.state_ == goog.fx.Animation.State.PAUSED && (this.startTime -= this.duration * this.progress);
+  this.endTime = this.startTime + this.duration;
+  this.lastFrame = this.startTime;
+  if(!this.progress) {
+    this.onBegin()
+  }
+  this.onPlay();
+  if(this.state_ == goog.fx.Animation.State.PAUSED) {
+    this.onResume()
+  }
+  this.state_ = goog.fx.Animation.State.PLAYING;
+  goog.fx.Animation.registerAnimation(this);
+  this.cycle(this.startTime);
+  return!0
+};
+goog.fx.Animation.prototype.stop = function(a) {
+  goog.fx.Animation.unregisterAnimation(this);
+  this.state_ = goog.fx.Animation.State.STOPPED;
+  if(a) {
+    this.progress = 1
+  }
+  this.updateCoords_(this.progress);
+  this.onStop();
+  this.onEnd()
+};
+goog.fx.Animation.prototype.pause = function() {
+  if(this.state_ == goog.fx.Animation.State.PLAYING) {
+    goog.fx.Animation.unregisterAnimation(this), this.state_ = goog.fx.Animation.State.PAUSED, this.onPause()
+  }
+};
+goog.fx.Animation.prototype.disposeInternal = function() {
+  this.state_ != goog.fx.Animation.State.STOPPED && this.stop(!1);
+  this.onDestroy();
+  goog.fx.Animation.superClass_.disposeInternal.call(this)
+};
+goog.fx.Animation.prototype.destroy = function() {
+  this.dispose()
+};
+goog.fx.Animation.prototype.cycle = function(a) {
+  this.progress = (a - this.startTime) / (this.endTime - this.startTime);
+  if(1 <= this.progress) {
+    this.progress = 1
+  }
+  this.fps_ = 1E3 / (a - this.lastFrame);
+  this.lastFrame = a;
+  goog.isFunction(this.accel_) ? this.updateCoords_(this.accel_(this.progress)) : this.updateCoords_(this.progress);
+  if(1 == this.progress) {
+    this.state_ = goog.fx.Animation.State.STOPPED, goog.fx.Animation.unregisterAnimation(this), this.onFinish(), this.onEnd()
+  }else {
+    if(this.state_ == goog.fx.Animation.State.PLAYING) {
+      this.onAnimate()
+    }
+  }
+};
+goog.fx.Animation.prototype.updateCoords_ = function(a) {
+  this.coords = Array(this.startPoint.length);
+  for(var b = 0;b < this.startPoint.length;b++) {
+    this.coords[b] = (this.endPoint[b] - this.startPoint[b]) * a + this.startPoint[b]
+  }
+};
+goog.fx.Animation.prototype.onAnimate = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.ANIMATE)
+};
+goog.fx.Animation.prototype.onBegin = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.BEGIN)
+};
+goog.fx.Animation.prototype.onDestroy = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.DESTROY)
+};
+goog.fx.Animation.prototype.onEnd = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.END)
+};
+goog.fx.Animation.prototype.onFinish = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.FINISH)
+};
+goog.fx.Animation.prototype.onPause = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.PAUSE)
+};
+goog.fx.Animation.prototype.onPlay = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.PLAY)
+};
+goog.fx.Animation.prototype.onResume = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.RESUME)
+};
+goog.fx.Animation.prototype.onStop = function() {
+  this.dispatchAnimationEvent_(goog.fx.Animation.EventType.STOP)
+};
+goog.fx.Animation.prototype.dispatchAnimationEvent_ = function(a) {
+  this.dispatchEvent(new goog.fx.AnimationEvent(a, this))
+};
+goog.fx.AnimationEvent = function(a, b) {
+  goog.events.Event.call(this, a);
+  this.coords = b.coords;
+  this.x = b.coords[0];
+  this.y = b.coords[1];
+  this.z = b.coords[2];
+  this.duration = b.duration;
+  this.progress = b.progress;
+  this.fps = b.fps_;
+  this.state = b.state_;
+  this.anim = b
+};
+goog.inherits(goog.fx.AnimationEvent, goog.events.Event);
+goog.fx.AnimationEvent.prototype.coordsAsInts = function() {
+  return goog.array.map(this.coords, Math.round)
+};
+goog.fx.easing = {};
+goog.fx.easing.easeIn = function(a) {
+  return a * a * a
+};
+goog.fx.easing.easeOut = function(a) {
+  return 1 - Math.pow(1 - a, 3)
+};
+goog.fx.easing.inAndOut = function(a) {
+  return 3 * a * a - 2 * a * a * a
+};
 goog.dom = {};
 goog.dom.BrowserFeature = {CAN_ADD_NAME_OR_TYPE_ATTRIBUTES:!goog.userAgent.IE || goog.userAgent.isVersion("9"), CAN_USE_CHILDREN_ATTRIBUTE:!goog.userAgent.GECKO && !goog.userAgent.IE || goog.userAgent.IE && goog.userAgent.isVersion("9") || goog.userAgent.GECKO && goog.userAgent.isVersion("1.9.1"), CAN_USE_INNER_TEXT:goog.userAgent.IE && !goog.userAgent.isVersion("9"), INNER_HTML_NEEDS_SCOPED_ELEMENT:goog.userAgent.IE};
 goog.dom.TagName = {A:"A", ABBR:"ABBR", ACRONYM:"ACRONYM", ADDRESS:"ADDRESS", APPLET:"APPLET", AREA:"AREA", B:"B", BASE:"BASE", BASEFONT:"BASEFONT", BDO:"BDO", BIG:"BIG", BLOCKQUOTE:"BLOCKQUOTE", BODY:"BODY", BR:"BR", BUTTON:"BUTTON", CANVAS:"CANVAS", CAPTION:"CAPTION", CENTER:"CENTER", CITE:"CITE", CODE:"CODE", COL:"COL", COLGROUP:"COLGROUP", DD:"DD", DEL:"DEL", DFN:"DFN", DIR:"DIR", DIV:"DIV", DL:"DL", DT:"DT", EM:"EM", FIELDSET:"FIELDSET", FONT:"FONT", FORM:"FORM", FRAME:"FRAME", FRAMESET:"FRAMESET", 
@@ -4886,6 +5064,317 @@ goog.dom.ViewportSizeMonitor.prototype.checkForSizeChange_ = function() {
     this.size_ = a, this.dispatchEvent(goog.events.EventType.RESIZE)
   }
 };
+goog.color = {};
+goog.color.names = {aliceblue:"#f0f8ff", antiquewhite:"#faebd7", aqua:"#00ffff", aquamarine:"#7fffd4", azure:"#f0ffff", beige:"#f5f5dc", bisque:"#ffe4c4", black:"#000000", blanchedalmond:"#ffebcd", blue:"#0000ff", blueviolet:"#8a2be2", brown:"#a52a2a", burlywood:"#deb887", cadetblue:"#5f9ea0", chartreuse:"#7fff00", chocolate:"#d2691e", coral:"#ff7f50", cornflowerblue:"#6495ed", cornsilk:"#fff8dc", crimson:"#dc143c", cyan:"#00ffff", darkblue:"#00008b", darkcyan:"#008b8b", darkgoldenrod:"#b8860b", 
+darkgray:"#a9a9a9", darkgreen:"#006400", darkgrey:"#a9a9a9", darkkhaki:"#bdb76b", darkmagenta:"#8b008b", darkolivegreen:"#556b2f", darkorange:"#ff8c00", darkorchid:"#9932cc", darkred:"#8b0000", darksalmon:"#e9967a", darkseagreen:"#8fbc8f", darkslateblue:"#483d8b", darkslategray:"#2f4f4f", darkslategrey:"#2f4f4f", darkturquoise:"#00ced1", darkviolet:"#9400d3", deeppink:"#ff1493", deepskyblue:"#00bfff", dimgray:"#696969", dimgrey:"#696969", dodgerblue:"#1e90ff", firebrick:"#b22222", floralwhite:"#fffaf0", 
+forestgreen:"#228b22", fuchsia:"#ff00ff", gainsboro:"#dcdcdc", ghostwhite:"#f8f8ff", gold:"#ffd700", goldenrod:"#daa520", gray:"#808080", green:"#008000", greenyellow:"#adff2f", grey:"#808080", honeydew:"#f0fff0", hotpink:"#ff69b4", indianred:"#cd5c5c", indigo:"#4b0082", ivory:"#fffff0", khaki:"#f0e68c", lavender:"#e6e6fa", lavenderblush:"#fff0f5", lawngreen:"#7cfc00", lemonchiffon:"#fffacd", lightblue:"#add8e6", lightcoral:"#f08080", lightcyan:"#e0ffff", lightgoldenrodyellow:"#fafad2", lightgray:"#d3d3d3", 
+lightgreen:"#90ee90", lightgrey:"#d3d3d3", lightpink:"#ffb6c1", lightsalmon:"#ffa07a", lightseagreen:"#20b2aa", lightskyblue:"#87cefa", lightslategray:"#778899", lightslategrey:"#778899", lightsteelblue:"#b0c4de", lightyellow:"#ffffe0", lime:"#00ff00", limegreen:"#32cd32", linen:"#faf0e6", magenta:"#ff00ff", maroon:"#800000", mediumaquamarine:"#66cdaa", mediumblue:"#0000cd", mediumorchid:"#ba55d3", mediumpurple:"#9370d8", mediumseagreen:"#3cb371", mediumslateblue:"#7b68ee", mediumspringgreen:"#00fa9a", 
+mediumturquoise:"#48d1cc", mediumvioletred:"#c71585", midnightblue:"#191970", mintcream:"#f5fffa", mistyrose:"#ffe4e1", moccasin:"#ffe4b5", navajowhite:"#ffdead", navy:"#000080", oldlace:"#fdf5e6", olive:"#808000", olivedrab:"#6b8e23", orange:"#ffa500", orangered:"#ff4500", orchid:"#da70d6", palegoldenrod:"#eee8aa", palegreen:"#98fb98", paleturquoise:"#afeeee", palevioletred:"#d87093", papayawhip:"#ffefd5", peachpuff:"#ffdab9", peru:"#cd853f", pink:"#ffc0cb", plum:"#dda0dd", powderblue:"#b0e0e6", 
+purple:"#800080", red:"#ff0000", rosybrown:"#bc8f8f", royalblue:"#4169e1", saddlebrown:"#8b4513", salmon:"#fa8072", sandybrown:"#f4a460", seagreen:"#2e8b57", seashell:"#fff5ee", sienna:"#a0522d", silver:"#c0c0c0", skyblue:"#87ceeb", slateblue:"#6a5acd", slategray:"#708090", slategrey:"#708090", snow:"#fffafa", springgreen:"#00ff7f", steelblue:"#4682b4", tan:"#d2b48c", teal:"#008080", thistle:"#d8bfd8", tomato:"#ff6347", turquoise:"#40e0d0", violet:"#ee82ee", wheat:"#f5deb3", white:"#ffffff", whitesmoke:"#f5f5f5", 
+yellow:"#ffff00", yellowgreen:"#9acd32"};
+goog.math.randomInt = function(a) {
+  return Math.floor(Math.random() * a)
+};
+goog.math.uniformRandom = function(a, b) {
+  return a + Math.random() * (b - a)
+};
+goog.math.clamp = function(a, b, c) {
+  return Math.min(Math.max(a, b), c)
+};
+goog.math.modulo = function(a, b) {
+  var c = a % b;
+  return 0 > c * b ? c + b : c
+};
+goog.math.lerp = function(a, b, c) {
+  return a + c * (b - a)
+};
+goog.math.nearlyEquals = function(a, b, c) {
+  return Math.abs(a - b) <= (c || 1.0E-6)
+};
+goog.math.standardAngle = function(a) {
+  return goog.math.modulo(a, 360)
+};
+goog.math.toRadians = function(a) {
+  return a * Math.PI / 180
+};
+goog.math.toDegrees = function(a) {
+  return 180 * a / Math.PI
+};
+goog.math.angleDx = function(a, b) {
+  return b * Math.cos(goog.math.toRadians(a))
+};
+goog.math.angleDy = function(a, b) {
+  return b * Math.sin(goog.math.toRadians(a))
+};
+goog.math.angle = function(a, b, c, d) {
+  return goog.math.standardAngle(goog.math.toDegrees(Math.atan2(d - b, c - a)))
+};
+goog.math.angleDifference = function(a, b) {
+  var c = goog.math.standardAngle(b) - goog.math.standardAngle(a);
+  180 < c ? c -= 360 : -180 >= c && (c = 360 + c);
+  return c
+};
+goog.math.sign = function(a) {
+  return 0 == a ? 0 : 0 > a ? -1 : 1
+};
+goog.math.longestCommonSubsequence = function(a, b, c, d) {
+  for(var c = c || function(a, b) {
+    return a == b
+  }, d = d || function(b) {
+    return a[b]
+  }, e = a.length, f = b.length, g = [], h = 0;h < e + 1;h++) {
+    g[h] = [], g[h][0] = 0
+  }
+  for(var i = 0;i < f + 1;i++) {
+    g[0][i] = 0
+  }
+  for(h = 1;h <= e;h++) {
+    for(i = 1;i <= e;i++) {
+      g[h][i] = c(a[h - 1], b[i - 1]) ? g[h - 1][i - 1] + 1 : Math.max(g[h - 1][i], g[h][i - 1])
+    }
+  }
+  for(var j = [], h = e, i = f;0 < h && 0 < i;) {
+    c(a[h - 1], b[i - 1]) ? (j.unshift(d(h - 1, i - 1)), h--, i--) : g[h - 1][i] > g[h][i - 1] ? h-- : i--
+  }
+  return j
+};
+goog.math.sum = function(a) {
+  return goog.array.reduce(arguments, function(a, c) {
+    return a + c
+  }, 0)
+};
+goog.math.average = function(a) {
+  return goog.math.sum.apply(null, arguments) / arguments.length
+};
+goog.math.standardDeviation = function(a) {
+  var b = arguments.length;
+  if(2 > b) {
+    return 0
+  }
+  var c = goog.math.average.apply(null, arguments), b = goog.math.sum.apply(null, goog.array.map(arguments, function(a) {
+    return Math.pow(a - c, 2)
+  })) / (b - 1);
+  return Math.sqrt(b)
+};
+goog.math.isInt = function(a) {
+  return isFinite(a) && 0 == a % 1
+};
+goog.math.isFiniteNumber = function(a) {
+  return isFinite(a) && !isNaN(a)
+};
+goog.color.parse = function(a) {
+  var b = {}, a = "" + a, c = goog.color.prependPoundIfNecessary_(a);
+  if(goog.color.isValidHexColor_(c)) {
+    return b.hex = goog.color.normalizeHex(c), b.type = "hex", b
+  }
+  c = goog.color.isValidRgbColor_(a);
+  if(c.length) {
+    return b.hex = goog.color.rgbArrayToHex(c), b.type = "rgb", b
+  }
+  if(goog.color.names && (c = goog.color.names[a.toLowerCase()])) {
+    return b.hex = c, b.type = "named", b
+  }
+  throw Error(a + " is not a valid color string");
+};
+goog.color.parseRgb = function(a) {
+  var b = goog.color.isValidRgbColor_(a);
+  if(!b.length) {
+    throw Error(a + " is not a valid RGB color");
+  }
+  return b
+};
+goog.color.hexToRgbStyle = function(a) {
+  return goog.color.rgbStyle_(goog.color.hexToRgb(a))
+};
+goog.color.hexTripletRe_ = /#(.)(.)(.)/;
+goog.color.normalizeHex = function(a) {
+  if(!goog.color.isValidHexColor_(a)) {
+    throw Error("'" + a + "' is not a valid hex color");
+  }
+  4 == a.length && (a = a.replace(goog.color.hexTripletRe_, "#$1$1$2$2$3$3"));
+  return a.toLowerCase()
+};
+goog.color.hexToRgb = function(a) {
+  var a = goog.color.normalizeHex(a), b = parseInt(a.substr(1, 2), 16), c = parseInt(a.substr(3, 2), 16), a = parseInt(a.substr(5, 2), 16);
+  return[b, c, a]
+};
+goog.color.rgbToHex = function(a, b, c) {
+  a = Number(a);
+  b = Number(b);
+  c = Number(c);
+  if(isNaN(a) || 0 > a || 255 < a || isNaN(b) || 0 > b || 255 < b || isNaN(c) || 0 > c || 255 < c) {
+    throw Error('"(' + a + "," + b + "," + c + '") is not a valid RGB color');
+  }
+  a = goog.color.prependZeroIfNecessary_(a.toString(16));
+  b = goog.color.prependZeroIfNecessary_(b.toString(16));
+  c = goog.color.prependZeroIfNecessary_(c.toString(16));
+  return"#" + a + b + c
+};
+goog.color.rgbArrayToHex = function(a) {
+  return goog.color.rgbToHex(a[0], a[1], a[2])
+};
+goog.color.rgbToHsl = function(a, b, c) {
+  var a = a / 255, b = b / 255, c = c / 255, d = Math.max(a, b, c), e = Math.min(a, b, c), f = 0, g = 0, h = 0.5 * (d + e);
+  d != e && (d == a ? f = 60 * (b - c) / (d - e) : d == b ? f = 60 * (c - a) / (d - e) + 120 : d == c && (f = 60 * (a - b) / (d - e) + 240), g = 0 < h && 0.5 >= h ? (d - e) / (2 * h) : (d - e) / (2 - 2 * h));
+  return[Math.round(f + 360) % 360, g, h]
+};
+goog.color.rgbArrayToHsl = function(a) {
+  return goog.color.rgbToHsl(a[0], a[1], a[2])
+};
+goog.color.hueToRgb_ = function(a, b, c) {
+  0 > c ? c += 1 : 1 < c && (c -= 1);
+  return 1 > 6 * c ? a + 6 * (b - a) * c : 1 > 2 * c ? b : 2 > 3 * c ? a + 6 * (b - a) * (2 / 3 - c) : a
+};
+goog.color.hslToRgb = function(a, b, c) {
+  var d = 0, e = 0, f = 0, a = a / 360;
+  if(0 == b) {
+    d = e = f = 255 * c
+  }else {
+    var g = f = 0, g = 0.5 > c ? c * (1 + b) : c + b - b * c, f = 2 * c - g, d = 255 * goog.color.hueToRgb_(f, g, a + 1 / 3), e = 255 * goog.color.hueToRgb_(f, g, a), f = 255 * goog.color.hueToRgb_(f, g, a - 1 / 3)
+  }
+  return[Math.round(d), Math.round(e), Math.round(f)]
+};
+goog.color.hslArrayToRgb = function(a) {
+  return goog.color.hslToRgb(a[0], a[1], a[2])
+};
+goog.color.validHexColorRe_ = /^#(?:[0-9a-f]{3}){1,2}$/i;
+goog.color.isValidHexColor_ = function(a) {
+  return goog.color.validHexColorRe_.test(a)
+};
+goog.color.normalizedHexColorRe_ = /^#[0-9a-f]{6}$/;
+goog.color.isNormalizedHexColor_ = function(a) {
+  return goog.color.normalizedHexColorRe_.test(a)
+};
+goog.color.rgbColorRe_ = /^(?:rgb)?\((0|[1-9]\d{0,2}),\s?(0|[1-9]\d{0,2}),\s?(0|[1-9]\d{0,2})\)$/i;
+goog.color.isValidRgbColor_ = function(a) {
+  var b = a.match(goog.color.rgbColorRe_);
+  if(b) {
+    var a = Number(b[1]), c = Number(b[2]), b = Number(b[3]);
+    if(0 <= a && 255 >= a && 0 <= c && 255 >= c && 0 <= b && 255 >= b) {
+      return[a, c, b]
+    }
+  }
+  return[]
+};
+goog.color.prependZeroIfNecessary_ = function(a) {
+  return 1 == a.length ? "0" + a : a
+};
+goog.color.prependPoundIfNecessary_ = function(a) {
+  return"#" == a.charAt(0) ? a : "#" + a
+};
+goog.color.rgbStyle_ = function(a) {
+  return"rgb(" + a.join(",") + ")"
+};
+goog.color.hsvToRgb = function(a, b, c) {
+  var d = 0, e = 0, f = 0;
+  if(0 == b) {
+    f = e = d = c
+  }else {
+    var g = Math.floor(a / 60), h = a / 60 - g, a = c * (1 - b), i = c * (1 - b * h), b = c * (1 - b * (1 - h));
+    switch(g) {
+      case 1:
+        d = i;
+        e = c;
+        f = a;
+        break;
+      case 2:
+        d = a;
+        e = c;
+        f = b;
+        break;
+      case 3:
+        d = a;
+        e = i;
+        f = c;
+        break;
+      case 4:
+        d = b;
+        e = a;
+        f = c;
+        break;
+      case 5:
+        d = c;
+        e = a;
+        f = i;
+        break;
+      case 6:
+      ;
+      case 0:
+        d = c, e = b, f = a
+    }
+  }
+  return[Math.floor(d), Math.floor(e), Math.floor(f)]
+};
+goog.color.rgbToHsv = function(a, b, c) {
+  var d = Math.max(Math.max(a, b), c), e = Math.min(Math.min(a, b), c);
+  if(e == d) {
+    e = a = 0
+  }else {
+    var f = d - e, e = f / d, a = 60 * (a == d ? (b - c) / f : b == d ? 2 + (c - a) / f : 4 + (a - b) / f);
+    0 > a && (a += 360);
+    360 < a && (a -= 360)
+  }
+  return[a, e, d]
+};
+goog.color.rgbArrayToHsv = function(a) {
+  return goog.color.rgbToHsv(a[0], a[1], a[2])
+};
+goog.color.hsvArrayToRgb = function(a) {
+  return goog.color.hsvToRgb(a[0], a[1], a[2])
+};
+goog.color.hexToHsl = function(a) {
+  a = goog.color.hexToRgb(a);
+  return goog.color.rgbToHsl(a[0], a[1], a[2])
+};
+goog.color.hslToHex = function(a, b, c) {
+  return goog.color.rgbArrayToHex(goog.color.hslToRgb(a, b, c))
+};
+goog.color.hslArrayToHex = function(a) {
+  return goog.color.rgbArrayToHex(goog.color.hslToRgb(a[0], a[1], a[2]))
+};
+goog.color.hexToHsv = function(a) {
+  return goog.color.rgbArrayToHsv(goog.color.hexToRgb(a))
+};
+goog.color.hsvToHex = function(a, b, c) {
+  return goog.color.rgbArrayToHex(goog.color.hsvToRgb(a, b, c))
+};
+goog.color.hsvArrayToHex = function(a) {
+  return goog.color.hsvToHex(a[0], a[1], a[2])
+};
+goog.color.hslDistance = function(a, b) {
+  var c, d;
+  c = 0.5 >= a[2] ? a[1] * a[2] : a[1] * (1 - a[2]);
+  d = 0.5 >= b[2] ? b[1] * b[2] : b[1] * (1 - b[2]);
+  return(a[2] - b[2]) * (a[2] - b[2]) + c * c + d * d - 2 * c * d * Math.cos(2 * (a[0] / 360 - b[0] / 360) * Math.PI)
+};
+goog.color.blend = function(a, b, c) {
+  c = goog.math.clamp(c, 0, 1);
+  return[Math.round(c * a[0] + (1 - c) * b[0]), Math.round(c * a[1] + (1 - c) * b[1]), Math.round(c * a[2] + (1 - c) * b[2])]
+};
+goog.color.darken = function(a, b) {
+  return goog.color.blend([0, 0, 0], a, b)
+};
+goog.color.lighten = function(a, b) {
+  return goog.color.blend([255, 255, 255], a, b)
+};
+goog.color.highContrast = function(a, b) {
+  for(var c = [], d = 0;d < b.length;d++) {
+    c.push({color:b[d], diff:goog.color.yiqBrightnessDiff_(b[d], a) + goog.color.colorDiff_(b[d], a)})
+  }
+  c.sort(function(a, b) {
+    return b.diff - a.diff
+  });
+  return c[0].color
+};
+goog.color.yiqBrightness_ = function(a) {
+  return Math.round((299 * a[0] + 587 * a[1] + 114 * a[2]) / 1E3)
+};
+goog.color.yiqBrightnessDiff_ = function(a, b) {
+  return Math.abs(goog.color.yiqBrightness_(a) - goog.color.yiqBrightness_(b))
+};
+goog.color.colorDiff_ = function(a, b) {
+  return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2])
+};
 goog.math.Box = function(a, b, c, d) {
   this.top = a;
   this.right = b;
@@ -5521,6 +6010,182 @@ goog.style.getScrollbarWidth = function() {
   goog.dom.removeNode(a);
   return b
 };
+goog.fx.dom = {};
+goog.fx.dom.PredefinedEffect = function(a, b, c, d, e) {
+  goog.fx.Animation.call(this, b, c, d, e);
+  this.element = a
+};
+goog.inherits(goog.fx.dom.PredefinedEffect, goog.fx.Animation);
+goog.fx.dom.PredefinedEffect.prototype.updateStyle = goog.nullFunction;
+goog.fx.dom.PredefinedEffect.prototype.onAnimate = function() {
+  this.updateStyle();
+  goog.fx.dom.PredefinedEffect.superClass_.onAnimate.call(this)
+};
+goog.fx.dom.PredefinedEffect.prototype.onEnd = function() {
+  this.updateStyle();
+  goog.fx.dom.PredefinedEffect.superClass_.onEnd.call(this)
+};
+goog.fx.dom.PredefinedEffect.prototype.onBegin = function() {
+  this.updateStyle();
+  goog.fx.dom.PredefinedEffect.superClass_.onBegin.call(this)
+};
+goog.fx.dom.Slide = function(a, b, c, d, e) {
+  if(2 != b.length || 2 != c.length) {
+    throw Error("Start and end points must be 2D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments)
+};
+goog.inherits(goog.fx.dom.Slide, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.Slide.prototype.updateStyle = function() {
+  this.element.style.left = Math.round(this.coords[0]) + "px";
+  this.element.style.top = Math.round(this.coords[1]) + "px"
+};
+goog.fx.dom.SlideFrom = function(a, b, c, d) {
+  goog.fx.dom.Slide.call(this, a, [a.offsetLeft, a.offsetTop], b, c, d)
+};
+goog.inherits(goog.fx.dom.SlideFrom, goog.fx.dom.Slide);
+goog.fx.dom.SlideFrom.prototype.onBegin = function() {
+  this.startPoint = [this.element.offsetLeft, this.element.offsetTop];
+  goog.fx.dom.SlideFrom.superClass_.onBegin.call(this)
+};
+goog.fx.dom.Swipe = function(a, b, c, d, e) {
+  if(2 != b.length || 2 != c.length) {
+    throw Error("Start and end points must be 2D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments);
+  this.maxWidth_ = Math.max(this.endPoint[0], this.startPoint[0]);
+  this.maxHeight_ = Math.max(this.endPoint[1], this.startPoint[1])
+};
+goog.inherits(goog.fx.dom.Swipe, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.Swipe.prototype.updateStyle = function() {
+  var a = this.coords[0], b = this.coords[1];
+  this.clip_(Math.round(a), Math.round(b), this.maxWidth_, this.maxHeight_);
+  this.element.style.width = Math.round(a) + "px";
+  this.element.style.marginLeft = Math.round(a) - this.maxWidth_ + "px";
+  this.element.style.marginTop = Math.round(b) - this.maxHeight_ + "px"
+};
+goog.fx.dom.Swipe.prototype.clip_ = function(a, b, c, d) {
+  this.element.style.clip = "rect(" + (d - b) + "px " + c + "px " + d + "px " + (c - a) + "px)"
+};
+goog.fx.dom.Scroll = function(a, b, c, d, e) {
+  if(2 != b.length || 2 != c.length) {
+    throw Error("Start and end points must be 2D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments)
+};
+goog.inherits(goog.fx.dom.Scroll, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.Scroll.prototype.updateStyle = function() {
+  this.element.scrollLeft = Math.round(this.coords[0]);
+  this.element.scrollTop = Math.round(this.coords[1])
+};
+goog.fx.dom.Resize = function(a, b, c, d, e) {
+  if(2 != b.length || 2 != c.length) {
+    throw Error("Start and end points must be 2D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments)
+};
+goog.inherits(goog.fx.dom.Resize, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.Resize.prototype.updateStyle = function() {
+  this.element.style.width = Math.round(this.coords[0]) + "px";
+  this.element.style.height = Math.round(this.coords[1]) + "px"
+};
+goog.fx.dom.ResizeWidth = function(a, b, c, d, e) {
+  goog.fx.dom.PredefinedEffect.call(this, a, [b], [c], d, e)
+};
+goog.inherits(goog.fx.dom.ResizeWidth, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.ResizeWidth.prototype.updateStyle = function() {
+  this.element.style.width = Math.round(this.coords[0]) + "px"
+};
+goog.fx.dom.ResizeHeight = function(a, b, c, d, e) {
+  goog.fx.dom.PredefinedEffect.call(this, a, [b], [c], d, e)
+};
+goog.inherits(goog.fx.dom.ResizeHeight, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.ResizeHeight.prototype.updateStyle = function() {
+  this.element.style.height = Math.round(this.coords[0]) + "px"
+};
+goog.fx.dom.Fade = function(a, b, c, d, e) {
+  goog.isNumber(b) && (b = [b]);
+  goog.isNumber(c) && (c = [c]);
+  goog.fx.dom.PredefinedEffect.call(this, a, b, c, d, e);
+  if(1 != b.length || 1 != c.length) {
+    throw Error("Start and end points must be 1D");
+  }
+};
+goog.inherits(goog.fx.dom.Fade, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.Fade.prototype.updateStyle = function() {
+  goog.style.setOpacity(this.element, this.coords[0])
+};
+goog.fx.dom.Fade.prototype.show = function() {
+  this.element.style.display = ""
+};
+goog.fx.dom.Fade.prototype.hide = function() {
+  this.element.style.display = "none"
+};
+goog.fx.dom.FadeOut = function(a, b, c) {
+  goog.fx.dom.Fade.call(this, a, 1, 0, b, c)
+};
+goog.inherits(goog.fx.dom.FadeOut, goog.fx.dom.Fade);
+goog.fx.dom.FadeIn = function(a, b, c) {
+  goog.fx.dom.Fade.call(this, a, 0, 1, b, c)
+};
+goog.inherits(goog.fx.dom.FadeIn, goog.fx.dom.Fade);
+goog.fx.dom.FadeOutAndHide = function(a, b, c) {
+  goog.fx.dom.Fade.call(this, a, 1, 0, b, c)
+};
+goog.inherits(goog.fx.dom.FadeOutAndHide, goog.fx.dom.Fade);
+goog.fx.dom.FadeOutAndHide.prototype.onBegin = function() {
+  this.show();
+  goog.fx.dom.FadeOutAndHide.superClass_.onBegin.call(this)
+};
+goog.fx.dom.FadeOutAndHide.prototype.onEnd = function() {
+  this.hide();
+  goog.fx.dom.FadeOutAndHide.superClass_.onEnd.call(this)
+};
+goog.fx.dom.FadeInAndShow = function(a, b, c) {
+  goog.fx.dom.Fade.call(this, a, 0, 1, b, c)
+};
+goog.inherits(goog.fx.dom.FadeInAndShow, goog.fx.dom.Fade);
+goog.fx.dom.FadeInAndShow.prototype.onBegin = function() {
+  this.show();
+  goog.fx.dom.FadeInAndShow.superClass_.onBegin.call(this)
+};
+goog.fx.dom.BgColorTransform = function(a, b, c, d, e) {
+  if(3 != b.length || 3 != c.length) {
+    throw Error("Start and end points must be 3D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments)
+};
+goog.inherits(goog.fx.dom.BgColorTransform, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.BgColorTransform.prototype.setColor = function() {
+  for(var a = [], b = 0;b < this.coords.length;b++) {
+    a[b] = Math.round(this.coords[b])
+  }
+  this.element.style.backgroundColor = "rgb(" + a.join(",") + ")"
+};
+goog.fx.dom.BgColorTransform.prototype.updateStyle = function() {
+  this.setColor()
+};
+goog.fx.dom.bgColorFadeIn = function(a, b, c, d) {
+  function e() {
+    a.style.backgroundColor = f
+  }
+  var f = a.style.backgroundColor || "", g = goog.style.getBackgroundColor(a), g = "transparent" != g && "rgba(0, 0, 0, 0)" != g ? goog.color.hexToRgb(goog.color.parse(g).hex) : [255, 255, 255], b = new goog.fx.dom.BgColorTransform(a, b, g, c);
+  d ? d.listen(b, goog.fx.Animation.EventType.END, e) : goog.events.listen(b, goog.fx.Animation.EventType.END, e);
+  b.play()
+};
+goog.fx.dom.ColorTransform = function(a, b, c, d, e) {
+  if(3 != b.length || 3 != c.length) {
+    throw Error("Start and end points must be 3D");
+  }
+  goog.fx.dom.PredefinedEffect.apply(this, arguments)
+};
+goog.inherits(goog.fx.dom.ColorTransform, goog.fx.dom.PredefinedEffect);
+goog.fx.dom.ColorTransform.prototype.updateStyle = function() {
+  for(var a = [], b = 0;b < this.coords.length;b++) {
+    a[b] = Math.round(this.coords[b])
+  }
+  this.element.style.color = "rgb(" + a.join(",") + ")"
+};
 goog.async = {};
 goog.async.Delay = function(a, b, c) {
   goog.Disposable.call(this);
@@ -5682,72 +6347,72 @@ goog.dom.query = function() {
   var b = goog.userAgent.WEBKIT && "BackCompat" == goog.dom.getDocument().compatMode, c = goog.dom.getDocument().firstChild.children ? "children" : "childNodes", d = !1, e = function(a) {
     for(var a = 0 <= ">~+".indexOf(a.slice(-1)) ? a + " * " : a + " ", b = function(b, c) {
       return goog.string.trim(a.slice(b, c))
-    }, c = [], e = -1, f = -1, g = -1, h = -1, i = -1, l = -1, j = -1, k = "", o = "", m, n = 0, r = a.length, p = null, q = null, u = function() {
-      if(0 <= l) {
-        p.id = b(l, n).replace(/\\/g, ""), l = -1
-      }
+    }, c = [], e = -1, f = -1, g = -1, h = -1, i = -1, j = -1, l = -1, k = "", m = "", p, n = 0, q = a.length, o = null, r = null, s = function() {
       if(0 <= j) {
-        var a = j == n ? null : b(j, n);
-        0 > ">~+".indexOf(a) ? p.tag = a : p.oper = a;
-        j = -1
+        o.id = b(j, n).replace(/\\/g, ""), j = -1
       }
-      0 <= i && (p.classes.push(b(i + 1, n).replace(/\\/g, "")), i = -1)
-    };k = o, o = a.charAt(n), n < r;n++) {
+      if(0 <= l) {
+        var a = l == n ? null : b(l, n);
+        0 > ">~+".indexOf(a) ? o.tag = a : o.oper = a;
+        l = -1
+      }
+      0 <= i && (o.classes.push(b(i + 1, n).replace(/\\/g, "")), i = -1)
+    };k = m, m = a.charAt(n), n < q;n++) {
       if("\\" != k) {
-        if(p || (m = n, p = {query:null, pseudos:[], attrs:[], classes:[], tag:null, oper:null, id:null, getTag:function() {
+        if(o || (p = n, o = {query:null, pseudos:[], attrs:[], classes:[], tag:null, oper:null, id:null, getTag:function() {
           return d ? this.otag : this.tag
-        }}, j = n), 0 <= e) {
-          if("]" == o) {
-            q.attr ? q.matchFor = b(g || e + 1, n) : q.attr = b(e + 1, n);
-            if((e = q.matchFor) && ('"' == e.charAt(0) || "'" == e.charAt(0))) {
-              q.matchFor = e.slice(1, -1)
+        }}, l = n), 0 <= e) {
+          if("]" == m) {
+            r.attr ? r.matchFor = b(g || e + 1, n) : r.attr = b(e + 1, n);
+            if((e = r.matchFor) && ('"' == e.charAt(0) || "'" == e.charAt(0))) {
+              r.matchFor = e.slice(1, -1)
             }
-            p.attrs.push(q);
-            q = null;
+            o.attrs.push(r);
+            r = null;
             e = g = -1
           }else {
-            if("=" == o) {
-              g = 0 <= "|~^$*".indexOf(k) ? k : "", q.type = g + o, q.attr = b(e + 1, n - g.length), g = n + 1
+            if("=" == m) {
+              g = 0 <= "|~^$*".indexOf(k) ? k : "", r.type = g + m, r.attr = b(e + 1, n - g.length), g = n + 1
             }
           }
         }else {
           if(0 <= f) {
-            if(")" == o) {
+            if(")" == m) {
               if(0 <= h) {
-                q.value = b(f + 1, n)
+                r.value = b(f + 1, n)
               }
               h = f = -1
             }
           }else {
-            if("#" == o) {
-              u(), l = n + 1
+            if("#" == m) {
+              s(), j = n + 1
             }else {
-              if("." == o) {
-                u(), i = n
+              if("." == m) {
+                s(), i = n
               }else {
-                if(":" == o) {
-                  u(), h = n
+                if(":" == m) {
+                  s(), h = n
                 }else {
-                  if("[" == o) {
-                    u(), e = n, q = {}
+                  if("[" == m) {
+                    s(), e = n, r = {}
                   }else {
-                    if("(" == o) {
-                      0 <= h && (q = {name:b(h + 1, n), value:null}, p.pseudos.push(q)), f = n
+                    if("(" == m) {
+                      0 <= h && (r = {name:b(h + 1, n), value:null}, o.pseudos.push(r)), f = n
                     }else {
-                      if(" " == o && k != o) {
-                        u();
-                        0 <= h && p.pseudos.push({name:b(h + 1, n)});
-                        p.loops = p.pseudos.length || p.attrs.length || p.classes.length;
-                        p.oquery = p.query = b(m, n);
-                        p.otag = p.tag = p.oper ? null : p.tag || "*";
-                        if(p.tag) {
-                          p.tag = p.tag.toUpperCase()
+                      if(" " == m && k != m) {
+                        s();
+                        0 <= h && o.pseudos.push({name:b(h + 1, n)});
+                        o.loops = o.pseudos.length || o.attrs.length || o.classes.length;
+                        o.oquery = o.query = b(p, n);
+                        o.otag = o.tag = o.oper ? null : o.tag || "*";
+                        if(o.tag) {
+                          o.tag = o.tag.toUpperCase()
                         }
                         if(c.length && c[c.length - 1].oper) {
-                          p.infixOper = c.pop(), p.query = p.infixOper.query + " " + p.query
+                          o.infixOper = c.pop(), o.query = o.infixOper.query + " " + o.query
                         }
-                        c.push(p);
-                        p = null
+                        c.push(o);
+                        o = null
                       }
                     }
                   }
@@ -5795,21 +6460,21 @@ goog.dom.query = function() {
     return function(c) {
       return h(c, a) == b
     }
-  }}, j = "undefined" == typeof goog.dom.getDocument().firstChild.nextElementSibling, k = !j ? "nextElementSibling" : "nextSibling", m = !j ? "previousElementSibling" : "previousSibling", l = j ? g : goog.functions.TRUE, n = function(a) {
+  }}, j = "undefined" == typeof goog.dom.getDocument().firstChild.nextElementSibling, k = !j ? "nextElementSibling" : "nextSibling", m = !j ? "previousElementSibling" : "previousSibling", l = j ? g : goog.functions.TRUE, p = function(a) {
     for(;a = a[m];) {
       if(l(a)) {
         return!1
       }
     }
     return!0
-  }, o = function(a) {
+  }, n = function(a) {
     for(;a = a[k];) {
       if(l(a)) {
         return!1
       }
     }
     return!0
-  }, r = function(a) {
+  }, q = function(a) {
     var b = a.parentNode, d = 0, e = b[c], f = a._i || -1, g = b._l || -1;
     if(!e) {
       return-1
@@ -5826,21 +6491,21 @@ goog.dom.query = function() {
       }
     }
     return f
-  }, q = function(a) {
-    return!(r(a) % 2)
-  }, t = function(a) {
-    return r(a) % 2
-  }, w = {checked:function() {
+  }, o = function(a) {
+    return!(q(a) % 2)
+  }, u = function(a) {
+    return q(a) % 2
+  }, s = {checked:function() {
     return function(a) {
       return a.checked || a.attributes.checked
     }
   }, "first-child":function() {
-    return n
+    return p
   }, "last-child":function() {
-    return o
+    return n
   }, "only-child":function() {
     return function(a) {
-      return!n(a) || !o(a) ? !1 : !0
+      return!p(a) || !n(a) ? !1 : !0
     }
   }, empty:function() {
     return function(a) {
@@ -5874,17 +6539,17 @@ goog.dom.query = function() {
     }
   }, "nth-child":function(a, b) {
     if("odd" == b) {
-      return t
+      return u
     }
     if("even" == b) {
-      return q
+      return o
     }
     if(-1 != b.indexOf("n")) {
       var c = b.split("n", 2), d = c[0] ? "-" == c[0] ? -1 : parseInt(c[0], 10) : 1, e = c[1] ? parseInt(c[1], 10) : 0, f = 0, g = -1;
       0 < d ? 0 > e ? e = e % d && d + e % d : 0 < e && (e >= d && (f = e - e % d), e %= d) : 0 > d && (d *= -1, 0 < e && (g = e, e %= d));
       if(0 < d) {
         return function(a) {
-          a = r(a);
+          a = q(a);
           return a >= f && (0 > g || a <= g) && a % d == e
         }
       }
@@ -5892,9 +6557,9 @@ goog.dom.query = function() {
     }
     var h = parseInt(b, 10);
     return function(a) {
-      return r(a) == h
+      return q(a) == h
     }
-  }}, u = goog.userAgent.IE ? function(a) {
+  }}, r = goog.userAgent.IE ? function(a) {
     var b = a.toLowerCase();
     "class" == b && (a = "className");
     return function(c) {
@@ -5922,11 +6587,11 @@ goog.dom.query = function() {
     });
     b.pseudos || goog.array.forEach(a.pseudos, function(a) {
       var b = a.name;
-      w[b] && (c = f(c, w[b](b, a.value)))
+      s[b] && (c = f(c, s[b](b, a.value)))
     });
     b.attrs || goog.array.forEach(a.attrs, function(a) {
       var b, d = a.attr;
-      a.type && i[a.type] ? b = i[a.type](d, a.matchFor) : d.length && (b = u(d));
+      a.type && i[a.type] ? b = i[a.type](d, a.matchFor) : d.length && (b = r(d));
       b && (c = f(c, b))
     });
     b.id || a.id && (c = f(c, function(b) {
@@ -5936,11 +6601,11 @@ goog.dom.query = function() {
       c = goog.functions.TRUE
     }
     return c
-  }, p = function(a) {
+  }, F = function(a) {
     return function(b, c, d) {
       for(;b = b[k];) {
         if(!j || g(b)) {
-          (!d || x(b, d)) && a(b) && c.push(b);
+          (!d || w(b, d)) && a(b) && c.push(b);
           break
         }
       }
@@ -5950,7 +6615,7 @@ goog.dom.query = function() {
     return function(b, c, d) {
       for(b = b[k];b;) {
         if(l(b)) {
-          if(d && !x(b, d)) {
+          if(d && !w(b, d)) {
             break
           }
           a(b) && c.push(b)
@@ -5963,12 +6628,12 @@ goog.dom.query = function() {
     a = a || goog.functions.TRUE;
     return function(b, d, e) {
       for(var f = 0, g = b[c];b = g[f++];) {
-        l(b) && (!e || x(b, e)) && a(b, f) && d.push(b)
+        l(b) && (!e || w(b, e)) && a(b, f) && d.push(b)
       }
       return d
     }
-  }, y = {}, z = function(c) {
-    var d = y[c.query];
+  }, x = {}, y = function(c) {
+    var d = x[c.query];
     if(d) {
       return d
     }
@@ -5979,7 +6644,7 @@ goog.dom.query = function() {
         h.tag = 1
       }
       f = v(c, h);
-      "+" == e ? d = p(f) : "~" == e ? d = G(f) : ">" == e && (d = H(f))
+      "+" == e ? d = F(f) : "~" == e ? d = G(f) : ">" == e && (d = H(f))
     }else {
       if(c.id) {
         f = !c.loops && g ? goog.functions.TRUE : v(c, {el:1, id:1}), d = function(b, d) {
@@ -6019,11 +6684,11 @@ goog.dom.query = function() {
         }
       }
     }
-    return y[c.query] = d
-  }, A = {}, B = {}, C = function(b) {
+    return x[c.query] = d
+  }, z = {}, A = {}, B = function(b) {
     var c = e(goog.string.trim(b));
     if(1 == c.length) {
-      var d = z(c[0]);
+      var d = y(c[0]);
       return function(a) {
         if(a = d(a, [])) {
           a.nozip = !0
@@ -6039,8 +6704,8 @@ goog.dom.query = function() {
         if(0 < e) {
           g = {}, h.nozip = !0
         }
-        e = z(d);
-        for(var l = 0;d = b[l];l++) {
+        e = y(d);
+        for(var j = 0;d = b[j];j++) {
           e(d, h, g)
         }
         if(!h.length) {
@@ -6050,21 +6715,21 @@ goog.dom.query = function() {
       }
       return h
     }
-  }, D = !!goog.dom.getDocument().querySelectorAll && (!goog.userAgent.WEBKIT || goog.userAgent.isVersion("526")), E = function(a, c) {
-    if(D) {
-      var d = B[a];
+  }, C = !!goog.dom.getDocument().querySelectorAll && (!goog.userAgent.WEBKIT || goog.userAgent.isVersion("526")), D = function(a, c) {
+    if(C) {
+      var d = A[a];
       if(d && !c) {
         return d
       }
     }
-    if(d = A[a]) {
+    if(d = z[a]) {
       return d
     }
     var d = a.charAt(0), e = -1 == a.indexOf(" ");
     0 <= a.indexOf("#") && e && (c = !0);
-    if(D && !c && -1 == ">~+".indexOf(d) && (!goog.userAgent.IE || -1 == a.indexOf(":")) && !(b && 0 <= a.indexOf(".")) && -1 == a.indexOf(":contains") && -1 == a.indexOf("|=")) {
+    if(C && !c && -1 == ">~+".indexOf(d) && (!goog.userAgent.IE || -1 == a.indexOf(":")) && !(b && 0 <= a.indexOf(".")) && -1 == a.indexOf(":contains") && -1 == a.indexOf("|=")) {
       var f = 0 <= ">~+".indexOf(a.charAt(a.length - 1)) ? a + " *" : a;
-      return B[a] = function(b) {
+      return A[a] = function(b) {
         try {
           if(!(9 == b.nodeType || e)) {
             throw"";
@@ -6073,22 +6738,22 @@ goog.dom.query = function() {
           goog.userAgent.IE ? c.commentStrip = !0 : c.nozip = !0;
           return c
         }catch(d) {
-          return E(a, !0)(b)
+          return D(a, !0)(b)
         }
       }
     }
     var g = a.split(/\s*,\s*/);
-    return A[a] = 2 > g.length ? C(a) : function(a) {
+    return z[a] = 2 > g.length ? B(a) : function(a) {
       for(var b = 0, c = [], d;d = g[b++];) {
-        c = c.concat(C(d)(a))
+        c = c.concat(B(d)(a))
       }
       return c
     }
-  }, s = 0, I = goog.userAgent.IE ? function(a) {
-    return d ? a.getAttribute("_uid") || a.setAttribute("_uid", ++s) || s : a.uniqueID
+  }, t = 0, I = goog.userAgent.IE ? function(a) {
+    return d ? a.getAttribute("_uid") || a.setAttribute("_uid", ++t) || t : a.uniqueID
   } : function(a) {
-    return a._uid || (a._uid = ++s)
-  }, x = function(a, b) {
+    return a._uid || (a._uid = ++t)
+  }, w = function(a, b) {
     if(!b) {
       return 1
     }
@@ -6106,9 +6771,9 @@ goog.dom.query = function() {
     if(2 > a.length) {
       return b
     }
-    s++;
+    t++;
     if(goog.userAgent.IE && d) {
-      var c = s + "";
+      var c = t + "";
       a[0].setAttribute("_zipIdx", c);
       for(var e = 1, f;f = a[e];e++) {
         a[e].getAttribute("_zipIdx") != c && b.push(f), f.setAttribute("_zipIdx", c)
@@ -6122,14 +6787,14 @@ goog.dom.query = function() {
         }catch(h) {
         }
       }else {
-        a[0] && (a[0]._zipIdx = s);
+        a[0] && (a[0]._zipIdx = t);
         for(e = 1;f = a[e];e++) {
-          a[e]._zipIdx != s && b.push(f), f._zipIdx = s
+          a[e]._zipIdx != t && b.push(f), f._zipIdx = t
         }
       }
     }
     return b
-  }, F = function(a, b) {
+  }, E = function(a, b) {
     if(!a) {
       return[]
     }
@@ -6144,10 +6809,10 @@ goog.dom.query = function() {
     }
     var b = b || goog.dom.getDocument(), c = b.ownerDocument || b.documentElement;
     d = b.contentType && "application/xml" == b.contentType || goog.userAgent.OPERA && (b.doctype || "[object XMLDocument]" == c.toString()) || !!c && (goog.userAgent.IE ? c.xml : b.xmlVersion || c.xmlVersion);
-    return(c = E(a)(b)) && c.nozip ? c : J(c)
+    return(c = D(a)(b)) && c.nozip ? c : J(c)
   };
-  F.pseudos = w;
-  return F
+  E.pseudos = s;
+  return E
 }();
 goog.exportSymbol("goog.dom.query", goog.dom.query);
 goog.exportSymbol("goog.dom.query.pseudos", goog.dom.query.pseudos);
@@ -8654,9 +9319,9 @@ cljs.core.comp = function() {
     return function() {
       var d = null, i = function() {
         var d = function(d, h, i, j) {
-          var o = null;
-          goog.isDef(j) && (o = cljs.core.array_seq(Array.prototype.slice.call(arguments, 3), 0));
-          return a.call(null, b.call(null, cljs.core.apply.call(null, c, d, h, i, o)))
+          var n = null;
+          goog.isDef(j) && (n = cljs.core.array_seq(Array.prototype.slice.call(arguments, 3), 0));
+          return a.call(null, b.call(null, cljs.core.apply.call(null, c, d, h, i, n)))
         };
         d.cljs$lang$maxFixedArity = 3;
         d.cljs$lang$applyTo = function(d) {
@@ -8862,8 +9527,8 @@ cljs.core.fnil = function() {
   }, c = function(a, b, c) {
     return function() {
       var d = null, i = function() {
-        var d = function(d, h, i, o) {
-          return cljs.core.apply.call(null, a, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, d)) ? b : d, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, h)) ? c : h, i, o)
+        var d = function(d, h, i, j) {
+          return cljs.core.apply.call(null, a, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, d)) ? b : d, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, h)) ? c : h, i, j)
         }, h = function(a, b, c, e) {
           var f = null;
           goog.isDef(e) && (f = cljs.core.array_seq(Array.prototype.slice.call(arguments, 3), 0));
@@ -8893,8 +9558,8 @@ cljs.core.fnil = function() {
   }, d = function(a, b, c, d) {
     return function() {
       var i = null, j = function() {
-        var i = function(i, j, o, k) {
-          return cljs.core.apply.call(null, a, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, i)) ? b : i, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, j)) ? c : j, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, o)) ? d : o, k)
+        var i = function(i, j, n, k) {
+          return cljs.core.apply.call(null, a, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, i)) ? b : i, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, j)) ? c : j, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, n)) ? d : n, k)
         }, j = function(a, b, c, d) {
           var e = null;
           goog.isDef(d) && (e = cljs.core.array_seq(Array.prototype.slice.call(arguments, 3), 0));
@@ -8906,7 +9571,7 @@ cljs.core.fnil = function() {
           return i.call(this, b, c, d, a)
         };
         return j
-      }(), i = function(i, m, l, n) {
+      }(), i = function(i, m, l, p) {
         switch(arguments.length) {
           case 2:
             return a.call(null, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, i)) ? b : i, cljs.core.truth_(cljs.core.nil_QMARK_.call(null, m)) ? c : m);
@@ -8994,7 +9659,7 @@ cljs.core.every_pred = function() {
           return c.call(this, b, d, e, a)
         };
         return d
-      }(), b = function(b, g, l, n) {
+      }(), b = function(b, g, l, p) {
         switch(arguments.length) {
           case 0:
             return!0;
@@ -9031,13 +9696,13 @@ cljs.core.every_pred = function() {
           return cljs.core.truth_(h) && (h = a.call(null, d), cljs.core.truth_(h) && (h = a.call(null, e), cljs.core.truth_(h) && (h = b.call(null, c), cljs.core.truth_(h)))) ? (h = b.call(null, d), cljs.core.truth_(h) ? b.call(null, e) : h) : h
         }())
       }, m = function() {
-        var d = function(d, e, i, l) {
+        var d = function(d, e, i, j) {
           return cljs.core.boolean$.call(null, function() {
-            var j = c.call(null, d, e, i);
-            return cljs.core.truth_(j) ? cljs.core.every_QMARK_.call(null, function(c) {
+            var l = c.call(null, d, e, i);
+            return cljs.core.truth_(l) ? cljs.core.every_QMARK_.call(null, function(c) {
               var d = a.call(null, c);
               return cljs.core.truth_(d) ? b.call(null, c) : d
-            }, l) : j
+            }, j) : l
           }())
         }, e = function(a, b, c, e) {
           var f = null;
@@ -9234,11 +9899,11 @@ cljs.core.some_fn = function() {
           case 1:
             return a.call(null, b);
           case 2:
-            var l = d, n = a.call(null, b);
-            return cljs.core.truth_(n) ? n : a.call(null, l);
+            var l = d, p = a.call(null, b);
+            return cljs.core.truth_(p) ? p : a.call(null, l);
           case 3:
-            var n = d, l = e, o = a.call(null, b);
-            cljs.core.truth_(o) ? l = o : (n = a.call(null, n), l = cljs.core.truth_(n) ? n : a.call(null, l));
+            var p = d, l = e, n = a.call(null, b);
+            cljs.core.truth_(n) ? l = n : (p = a.call(null, p), l = cljs.core.truth_(p) ? p : a.call(null, l));
             return l;
           default:
             return c.apply(this, arguments)
@@ -9288,17 +9953,17 @@ cljs.core.some_fn = function() {
           return d.call(this, b, c, e, a)
         };
         return e
-      }(), c = function(c, h, l, n) {
+      }(), c = function(c, h, l, p) {
         switch(arguments.length) {
           case 0:
             return null;
           case 1:
-            var o = c, r = a.call(null, o);
-            return cljs.core.truth_(r) ? r : b.call(null, o);
+            var n = c, q = a.call(null, n);
+            return cljs.core.truth_(q) ? q : b.call(null, n);
           case 2:
-            var r = c, o = h, q = a.call(null, r);
-            cljs.core.truth_(q) ? o = q : (q = a.call(null, o), cljs.core.truth_(q) ? o = q : (r = b.call(null, r), o = cljs.core.truth_(r) ? r : b.call(null, o)));
-            return o;
+            var q = c, n = h, o = a.call(null, q);
+            cljs.core.truth_(o) ? n = o : (o = a.call(null, n), cljs.core.truth_(o) ? n = o : (q = b.call(null, q), n = cljs.core.truth_(q) ? q : b.call(null, n)));
+            return n;
           case 3:
             return d.call(this, c, h, l);
           default:
@@ -9363,8 +10028,8 @@ cljs.core.some_fn = function() {
         e = b.call(null, i);
         return cljs.core.truth_(e) ? e : c.call(null, i)
       }, m = function() {
-        var e = function(e, j, l, m) {
-          e = d.call(null, e, j, l);
+        var e = function(e, j, m, k) {
+          e = d.call(null, e, j, m);
           return cljs.core.truth_(e) ? e : cljs.core.some.call(null, function(d) {
             var e = a.call(null, d);
             if(cljs.core.truth_(e)) {
@@ -9372,7 +10037,7 @@ cljs.core.some_fn = function() {
             }
             e = b.call(null, d);
             return cljs.core.truth_(e) ? e : c.call(null, d)
-          }, m)
+          }, k)
         }, j = function(a, b, c, d) {
           var f = null;
           goog.isDef(d) && (f = cljs.core.array_seq(Array.prototype.slice.call(arguments, 3), 0));
@@ -9384,20 +10049,20 @@ cljs.core.some_fn = function() {
           return e.call(this, b, c, d, a)
         };
         return j
-      }(), d = function(d, i, o, r) {
+      }(), d = function(d, i, n, q) {
         switch(arguments.length) {
           case 0:
             return null;
           case 1:
-            var q;
-            q = d;
-            var t = a.call(null, q);
-            cljs.core.truth_(t) ? q = t : (t = b.call(null, q), q = cljs.core.truth_(t) ? t : c.call(null, q));
-            return q;
+            var o;
+            o = d;
+            var u = a.call(null, o);
+            cljs.core.truth_(u) ? o = u : (u = b.call(null, o), o = cljs.core.truth_(u) ? u : c.call(null, o));
+            return o;
           case 2:
             return e.call(this, d, i);
           case 3:
-            return k.call(this, d, i, o);
+            return k.call(this, d, i, n);
           default:
             return m.apply(this, arguments)
         }
@@ -9513,10 +10178,10 @@ cljs.core.map = function() {
     var b = function(b, c, d, e, f) {
       return a.call(null, function(a) {
         return cljs.core.apply.call(null, b, a)
-      }, function n(b) {
+      }, function p(b) {
         return new cljs.core.LazySeq(null, !1, function() {
           var c = a.call(null, cljs.core.seq, b);
-          return cljs.core.truth_(cljs.core.every_QMARK_.call(null, cljs.core.identity, c)) ? cljs.core.cons.call(null, a.call(null, cljs.core.first, c), n.call(null, a.call(null, cljs.core.rest, c))) : null
+          return cljs.core.truth_(cljs.core.every_QMARK_.call(null, cljs.core.identity, c)) ? cljs.core.cons.call(null, a.call(null, cljs.core.first, c), p.call(null, a.call(null, cljs.core.rest, c))) : null
         })
       }.call(null, cljs.core.conj.call(null, f, e, d, c)))
     }, c = function(a, c, d, e, g) {
@@ -10937,7 +11602,7 @@ cljs.core.juxt = function() {
           return d.call(this, b, c, e, a)
         };
         return e
-      }(), d = function(d, i, l, n) {
+      }(), d = function(d, i, l, p) {
         switch(arguments.length) {
           case 0:
             return cljs.core.vector.call(null, a.call(null), b.call(null), c.call(null));
@@ -12527,15 +13192,13 @@ enfocus.core.en_remove_attr = function() {
   return b
 }();
 enfocus.core.has_class = function(a, b) {
-  var c = RegExp(cljs.core.str.call(null, "(\\s|^)", b, "(\\s|$)"));
-  return a.className.match(c)
+  return goog.dom.classes.hasClass.call(null, a, b)
 };
 enfocus.core.en_add_class = function() {
   var a = function(a) {
     return enfocus.core.chainable_standard.call(null, function(b) {
-      var e = b.className;
       return cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        return cljs.core.truth_(cljs.core.not.call(null, enfocus.core.has_class.call(null, b, a))) ? b.className = cljs.core.str.call(null, e, " ", a) : null
+        return goog.dom.classes.add.call(null, b, a)
       }, a))
     })
   }, b = function(b) {
@@ -12553,9 +13216,8 @@ enfocus.core.en_add_class = function() {
 enfocus.core.en_remove_class = function() {
   var a = function(a) {
     return enfocus.core.chainable_standard.call(null, function(b) {
-      var e = b.className;
       return cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        return cljs.core.truth_(enfocus.core.has_class.call(null, b, a)) ? (a = RegExp(cljs.core.str.call(null, "(\\s|^)", a, "(\\s|$)")), b.className = e.replace(a, " ")) : null
+        return goog.dom.classes.remove.call(null, b, a)
       }, a))
     })
   }, b = function(b) {
@@ -12704,9 +13366,6 @@ enfocus.core.en_unwrap = function() {
   return enfocus.core.chainable_standard.call(null, function(a) {
     var b = document.createDocumentFragment();
     enfocus.core.en_append.call(null, a.childNodes).call(null, b);
-    enfocus.core.log_debug.call(null, b);
-    enfocus.core.log_debug.call(null, a);
-    enfocus.core.log_debug.call(null, a.childNodes);
     return goog.dom.replaceNode.call(null, b, a)
   })
 };
@@ -12781,339 +13440,33 @@ enfocus.core.en_remove_listener = function() {
   };
   return b
 }();
-enfocus.core.start_effect = function(a, b) {
-  enfocus.core.log_debug.call(null, cljs.core.str.call(null, "start-effect", a, ":", b));
-  var c = a[enfocus.core.get_eff_prop_name.call(null, b)], d = cljs.core.gensym.call(null, "efid_");
-  cljs.core.truth_(c) ? cljs.core.swap_BANG_.call(null, c, cljs.core.conj, d) : a[enfocus.core.get_eff_prop_name.call(null, b)] = cljs.core.atom.call(null, cljs.core.set([d]));
-  return d
-};
-enfocus.core.check_effect = function(a, b, c) {
-  a = a[enfocus.core.get_eff_prop_name.call(null, b)];
-  return cljs.core.truth_(cljs.core.truth_(a) ? cljs.core.contains_QMARK_.call(null, cljs.core.deref.call(null, a), c) : a) ? !0 : !1
-};
-enfocus.core.finish_effect = function(a, b, c) {
-  enfocus.core.log_debug.call(null, cljs.core.str.call(null, "finish-effect", a, ":", b, ":", c));
-  a = a[enfocus.core.get_eff_prop_name.call(null, b)];
-  return cljs.core.truth_(a) ? cljs.core.swap_BANG_.call(null, a, cljs.core.disj, c) : null
-};
-enfocus.core.en_stop_effect = function() {
-  var a = function(a) {
-    return function(b) {
-      enfocus.core.log_debug.call(null, cljs.core.pr_str.call(null, "stop-effect", b, ":", a));
-      return cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        return b[enfocus.core.get_eff_prop_name.call(null, a)] = cljs.core.atom.call(null, cljs.core.set([]))
-      }, a))
-    }
-  }, b = function(b) {
-    var d = null;
-    goog.isDef(b) && (d = cljs.core.array_seq(Array.prototype.slice.call(arguments, 0), 0));
-    return a.call(this, d)
-  };
-  b.cljs$lang$maxFixedArity = 0;
-  b.cljs$lang$applyTo = function(b) {
-    b = cljs.core.seq(b);
-    return a.call(this, b)
-  };
-  return b
-}();
 enfocus.core.en_fade_out = function(a, b, c) {
-  var d = 1 / (a / b);
-  return enfocus.core.chainable_effect.call(null, function(a, c) {
-    enfocus.core.en_stop_effect.call(null, "\ufdd0'fade-in").call(null, a);
-    var g = enfocus.core.get_mills.call(null), h = enfocus.core.start_effect.call(null, a, "\ufdd0'fade-out");
-    return function j() {
-      if(cljs.core.truth_(function() {
-        var b = enfocus.core.check_effect.call(null, a, "\ufdd0'fade-out", h);
-        return cljs.core.truth_(b) ? cljs.core.not.call(null, function(a) {
-          var b = goog.style.getOpacity.call(null, a), c = cljs.core.truth_(function() {
-            var a = cljs.core._EQ_.call(null, b, void 0);
-            return cljs.core.truth_(a) ? a : cljs.core._EQ_.call(null, "", b)
-          }()) ? 1 : b;
-          return cljs.core.truth_(0 >= c - d) ? (goog.style.setOpacity.call(null, a, 0), !0) : !1
-        }.call(null, a, enfocus.core.get_mills.call(null) - g)) : b
-      }())) {
-        return function() {
-          var a = enfocus.core.nodes__GT_coll.call(null, function(a) {
-            var b = goog.style.getOpacity.call(null, a), b = cljs.core.truth_(cljs.core._EQ_.call(null, b, void 0)) ? 1 : b;
-            return cljs.core.truth_(cljs.core._EQ_.call(null, "", b)) ? goog.style.setOpacity.call(null, a, 1 - d) : cljs.core.truth_(0 < b) ? goog.style.setOpacity.call(null, a, b - d) : null
-          });
-          cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-            return a
-          }, a));
-          return function(a) {
-            var b = goog.style.getOpacity.call(null, a), b = cljs.core.truth_(cljs.core._EQ_.call(null, b, void 0)) ? 1 : b;
-            return cljs.core.truth_(cljs.core._EQ_.call(null, "", b)) ? goog.style.setOpacity.call(null, a, 1 - d) : cljs.core.truth_(0 < b) ? goog.style.setOpacity.call(null, a, b - d) : null
-          }
-        }().call(null, a), enfocus.core.setTimeout.call(null, function() {
-          return j.call(null)
-        }, b)
-      }
-      enfocus.core.finish_effect.call(null, a, "\ufdd0'fade-out", h);
-      return c.call(null)
-    }.call(null, 0)
-  }, c)
+  return enfocus.core.chainable_effect.call(null, function(b, e) {
+    var f = new goog.fx.dom.FadeOut(b, a, c);
+    cljs.core.truth_(cljs.core.not.call(null, cljs.core.nil_QMARK_.call(null, e))) && goog.events.listen.call(null, f, goog.fx.Animation.EventType.END, e);
+    return f.play()
+  }, b)
 };
 enfocus.core.en_fade_in = function(a, b, c) {
-  var d = 1 / (a / b);
-  return enfocus.core.chainable_effect.call(null, function(a, c) {
-    enfocus.core.en_stop_effect.call(null, "\ufdd0'fade-out").call(null, a);
-    var g = enfocus.core.get_mills.call(null), h = enfocus.core.start_effect.call(null, a, "\ufdd0'fade-in");
-    return function j() {
-      if(cljs.core.truth_(function() {
-        var b = enfocus.core.check_effect.call(null, a, "\ufdd0'fade-in", h);
-        return cljs.core.truth_(b) ? cljs.core.not.call(null, function(a) {
-          var b = goog.style.getOpacity.call(null, a);
-          return cljs.core.truth_(1 <= b + d) ? (goog.style.setOpacity.call(null, a, 1), !0) : !1
-        }.call(null, a, enfocus.core.get_mills.call(null) - g)) : b
-      }())) {
-        return function() {
-          var a = enfocus.core.nodes__GT_coll.call(null, function(a) {
-            var b = goog.style.getOpacity.call(null, a);
-            return cljs.core.truth_(cljs.core._EQ_.call(null, "", b)) ? goog.style.setOpacity.call(null, a, d) : cljs.core.truth_(1 > b) ? goog.style.setOpacity.call(null, a, b + d) : null
-          });
-          cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-            return a
-          }, a));
-          return function(a) {
-            var b = goog.style.getOpacity.call(null, a);
-            return cljs.core.truth_(cljs.core._EQ_.call(null, "", b)) ? goog.style.setOpacity.call(null, a, d) : cljs.core.truth_(1 > b) ? goog.style.setOpacity.call(null, a, b + d) : null
-          }
-        }().call(null, a), enfocus.core.setTimeout.call(null, function() {
-          return j.call(null)
-        }, b)
-      }
-      enfocus.core.finish_effect.call(null, a, "\ufdd0'fade-in", h);
-      return c.call(null)
-    }.call(null, 0)
-  }, c)
+  return enfocus.core.chainable_effect.call(null, function(b, e) {
+    var f = new goog.fx.dom.FadeIn(b, a, c);
+    cljs.core.truth_(cljs.core.not.call(null, cljs.core.nil_QMARK_.call(null, e))) && goog.events.listen.call(null, f, goog.fx.Animation.EventType.END, e);
+    return f.play()
+  }, b)
 };
 enfocus.core.en_resize = function(a, b, c, d, e) {
-  var f = cljs.core.gensym.call(null, "orig-size"), g = cljs.core.truth_(function() {
-    var a = 0 === c;
-    if(cljs.core.truth_(a)) {
-      return a
-    }
-    a = 0 === d;
-    return cljs.core.truth_(a) ? a : c <= d
-  }()) ? 1 : c / d;
-  return enfocus.core.chainable_effect.call(null, function(c, e) {
-    enfocus.core.en_stop_effect.call(null, "\ufdd0'resize").call(null, c);
-    var j = enfocus.core.get_mills.call(null), k = enfocus.core.start_effect.call(null, c, "\ufdd0'resize");
-    return function l() {
-      if(cljs.core.truth_(function() {
-        var d = enfocus.core.check_effect.call(null, c, "\ufdd0'resize", k);
-        return cljs.core.truth_(d) ? cljs.core.not.call(null, function(c) {
-          var d = goog.style.getSize.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curwidth", a)) ? e.width : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curheight", b)) ? e.height : b, j = enfocus.core.pix_round.call(null, (h - e.width) / g), k = enfocus.core.pix_round.call(null, (i - e.height) / g);
-          return cljs.core.truth_(function() {
-            var a = function() {
-              var a = 0 === j;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h >= d.width : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h <= d.width : a
-            }();
-            if(cljs.core.truth_(a)) {
-              a = 0 === k;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = function() {
-                var a = 0 > k;
-                return cljs.core.truth_(a) ? i >= d.height : a
-              }();
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i <= d.height : a
-            }
-            return a
-          }()) ? (c[cljs.core.name.call(null, f)] = null, goog.style.setWidth.call(null, c, h), goog.style.setHeight.call(null, c, i), !0) : !1
-        }.call(null, c, enfocus.core.get_mills.call(null) - j)) : d
-      }())) {
-        return function() {
-          var c = enfocus.core.nodes__GT_coll.call(null, function(c) {
-            var d = goog.style.getSize.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curwidth", a)) ? e.width : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curheight", b)) ? e.height : b, j = enfocus.core.pix_round.call(null, (h - e.width) / g), k = enfocus.core.pix_round.call(null, (i - e.height) / g);
-            cljs.core.truth_(function() {
-              var a;
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h < d.width : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h > d.width : a
-            }()) && goog.style.setWidth.call(null, c, d.width + j);
-            return cljs.core.truth_(function() {
-              var a;
-              a = 0 > k;
-              a = cljs.core.truth_(a) ? i < d.height : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i > d.height : a
-            }()) ? goog.style.setHeight.call(null, c, d.height + k) : null
-          });
-          cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-            return a
-          }, c));
-          return function(c) {
-            var d = goog.style.getSize.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curwidth", a)) ? e.width : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curheight", b)) ? e.height : b, j = enfocus.core.pix_round.call(null, (h - e.width) / g), k = enfocus.core.pix_round.call(null, (i - e.height) / g);
-            cljs.core.truth_(function() {
-              var a;
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h < d.width : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h > d.width : a
-            }()) && goog.style.setWidth.call(null, c, d.width + j);
-            return cljs.core.truth_(function() {
-              var a;
-              a = 0 > k;
-              a = cljs.core.truth_(a) ? i < d.height : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i > d.height : a
-            }()) ? goog.style.setHeight.call(null, c, d.height + k) : null
-          }
-        }().call(null, c), enfocus.core.setTimeout.call(null, function() {
-          return l.call(null)
-        }, d)
-      }
-      enfocus.core.finish_effect.call(null, c, "\ufdd0'resize", k);
-      return e.call(null)
-    }.call(null, 0)
-  }, e)
+  return enfocus.core.chainable_effect.call(null, function(d, g) {
+    var h = goog.style.getSize.call(null, d), i = cljs.core.array.call(null, h.width, h.height), j = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curwidth", a)) ? h.width : a, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curheight", b)) ? h.height : b, j = cljs.core.array.call(null, j, h), i = new goog.fx.dom.Resize(d, i, j, c, e);
+    cljs.core.truth_(cljs.core.not.call(null, cljs.core.nil_QMARK_.call(null, g))) && goog.events.listen.call(null, i, goog.fx.Animation.EventType.END, g);
+    return i.play()
+  }, d)
 };
 enfocus.core.en_move = function(a, b, c, d, e) {
-  var f = cljs.core.gensym.call(null, "orig-pos"), g = cljs.core.truth_(function() {
-    var a = 0 === c;
-    if(cljs.core.truth_(a)) {
-      return a
-    }
-    a = 0 === d;
-    return cljs.core.truth_(a) ? a : c <= d
-  }()) ? 1 : c / d;
-  return enfocus.core.chainable_effect.call(null, function(c, e) {
-    enfocus.core.en_stop_effect.call(null, "\ufdd0'move").call(null, c);
-    var j = enfocus.core.get_mills.call(null), k = enfocus.core.start_effect.call(null, c, "\ufdd0'move");
-    return function l() {
-      if(cljs.core.truth_(function() {
-        var d = enfocus.core.check_effect.call(null, c, "\ufdd0'move", k);
-        return cljs.core.truth_(d) ? cljs.core.not.call(null, function(c) {
-          var d = goog.style.getPosition.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curx", a)) ? e.x : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'cury", b)) ? e.y : b, j = enfocus.core.pix_round.call(null, (h - e.x) / g), k = enfocus.core.pix_round.call(null, (i - e.y) / g), e = d.clone;
-          return cljs.core.truth_(function() {
-            var a = function() {
-              var a = 0 === j;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h >= d.x : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h <= d.x : a
-            }();
-            if(cljs.core.truth_(a)) {
-              a = 0 === k;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = function() {
-                var a = 0 > k;
-                return cljs.core.truth_(a) ? i >= d.y : a
-              }();
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i <= d.y : a
-            }
-            return a
-          }()) ? (c[cljs.core.name.call(null, f)] = null, e.x = h, e.y = i, goog.style.setPosition.call(null, c, e.x, e.y), !0) : !1
-        }.call(null, c, enfocus.core.get_mills.call(null) - j)) : d
-      }())) {
-        return function() {
-          var c = enfocus.core.nodes__GT_coll.call(null, function(c) {
-            var d = goog.style.getPosition.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curx", a)) ? e.x : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'cury", b)) ? e.y : b, j = enfocus.core.pix_round.call(null, (h - e.x) / g), k = enfocus.core.pix_round.call(null, (i - e.y) / g), e = d.clone;
-            if(cljs.core.truth_(function() {
-              var a;
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h < d.x : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h > d.x : a
-            }())) {
-              e.x = d.x + j
-            }
-            if(cljs.core.truth_(function() {
-              var a;
-              a = 0 > k;
-              a = cljs.core.truth_(a) ? i < d.y : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i > d.y : a
-            }())) {
-              e.y = d.y + k
-            }
-            return goog.style.setPosition.call(null, c, e.x, e.y)
-          });
-          cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-            return a
-          }, c));
-          return function(c) {
-            var d = goog.style.getPosition.call(null, c), e = c[cljs.core.name.call(null, f)], e = cljs.core.truth_(e) ? e : c[cljs.core.name.call(null, f)] = d, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curx", a)) ? e.x : a, i = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'cury", b)) ? e.y : b, j = enfocus.core.pix_round.call(null, (h - e.x) / g), k = enfocus.core.pix_round.call(null, (i - e.y) / g), e = d.clone;
-            if(cljs.core.truth_(function() {
-              var a;
-              a = 0 > j;
-              a = cljs.core.truth_(a) ? h < d.x : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < j;
-              return cljs.core.truth_(a) ? h > d.x : a
-            }())) {
-              e.x = d.x + j
-            }
-            if(cljs.core.truth_(function() {
-              var a;
-              a = 0 > k;
-              a = cljs.core.truth_(a) ? i < d.y : a;
-              if(cljs.core.truth_(a)) {
-                return a
-              }
-              a = 0 < k;
-              return cljs.core.truth_(a) ? i > d.y : a
-            }())) {
-              e.y = d.y + k
-            }
-            return goog.style.setPosition.call(null, c, e.x, e.y)
-          }
-        }().call(null, c), enfocus.core.setTimeout.call(null, function() {
-          return l.call(null)
-        }, d)
-      }
-      enfocus.core.finish_effect.call(null, c, "\ufdd0'move", k);
-      return e.call(null)
-    }.call(null, 0)
-  }, e)
+  return enfocus.core.chainable_effect.call(null, function(d, g) {
+    var h = goog.style.getPosition.call(null, d), i = cljs.core.array.call(null, h.x, h.y), j = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'curx")) ? h.x : a, h = cljs.core.truth_(cljs.core._EQ_.call(null, "\ufdd0'cury")) ? h.y : b, j = cljs.core.array.call(null, j, h), i = new goog.fx.dom.Slide(d, i, j, c, e);
+    cljs.core.truth_(cljs.core.not.call(null, cljs.core.nil_QMARK_.call(null, g))) && goog.events.listen.call(null, i, goog.fx.Animation.EventType.END, g);
+    return i.play()
+  }, d)
 };
 enfocus.core.en_get_attr = function(a) {
   return enfocus.core.extr_multi_node.call(null, function(b) {
@@ -13301,11 +13654,11 @@ enfocus.demo.site.setup_pane = function(a, b) {
     enfocus.core.chainable_standard.call(null, function(a) {
       return enfocus.core.setTimeout.call(null, function() {
         return function() {
-          var a = enfocus.core.nodes__GT_coll.call(null, enfocus.core.en_do__GT_.call(null, enfocus.core.en_set_style.call(null, "\ufdd0'display", "inline"), enfocus.core.en_fade_in.call(null, 1E3, 20, null)));
+          var a = enfocus.core.nodes__GT_coll.call(null, enfocus.core.en_do__GT_.call(null, enfocus.core.en_set_style.call(null, "\ufdd0'display", "inline"), enfocus.core.en_fade_in.call(null, 1E3, null, null)));
           cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
             return a
           }, a));
-          return enfocus.core.en_do__GT_.call(null, enfocus.core.en_set_style.call(null, "\ufdd0'display", "inline"), enfocus.core.en_fade_in.call(null, 1E3, 20, null))
+          return enfocus.core.en_do__GT_.call(null, enfocus.core.en_set_style.call(null, "\ufdd0'display", "inline"), enfocus.core.en_fade_in.call(null, 1E3, null, null))
         }().call(null, a)
       }, 1E3)
     }).call(null, enfocus.core.css_select.call(null, "", c, cljs.core.Vector.fromArray(["#menu"])));
@@ -13317,8 +13670,8 @@ enfocus.demo.site.setup_pane = function(a, b) {
     enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.doc_template_page).call(null, enfocus.core.css_select.call(null, "", c, cljs.core.Vector.fromArray(["#doc-remote"])));
     enfocus.core.en_listen.call(null, "\ufdd0'click", enfocus.demo.site.doc_from_page).call(null, enfocus.core.css_select.call(null, "", c, cljs.core.Vector.fromArray(["#doc-extract"])));
     (function(c) {
-      return enfocus.core.en_resize.call(null, 5, b, 500, 20, null).call(null, c, function(b) {
-        return enfocus.core.en_resize.call(null, a, "\ufdd0'curheight", 500, 20, null).call(null, b, function(a) {
+      return enfocus.core.en_resize.call(null, 5, b, 500, null, null).call(null, c, function(b) {
+        return enfocus.core.en_resize.call(null, a, "\ufdd0'curheight", 500, null, null).call(null, b, function(a) {
           return enfocus.core.en_content.call(null, enfocus.demo.site.home.call(null)).call(null, a)
         })
       })
@@ -13330,7 +13683,7 @@ enfocus.demo.site.setup_pane = function(a, b) {
 enfocus.demo.site.resize_pane = function(a, b) {
   var c = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(c) {
-    enfocus.core.en_do__GT_.call(null, enfocus.core.en_resize.call(null, a, b, 200, 20, null)).call(null, enfocus.core.css_select.call(null, "", c, cljs.core.Vector.fromArray(["#content-pane"])));
+    enfocus.core.en_do__GT_.call(null, enfocus.core.en_resize.call(null, a, b, 200, null, null)).call(null, enfocus.core.css_select.call(null, "", c, cljs.core.Vector.fromArray(["#content-pane"])));
     return c
   }, c));
   return document
@@ -13352,7 +13705,7 @@ enfocus.demo.site.start = function() {
     enfocus.core.en_listen.call(null, "\ufdd0'mouseenter", function(a) {
       var b = enfocus.core.nodes__GT_coll.call(null, a.currentTarget);
       cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        enfocus.core.en_resize.call(null, "\ufdd0'curwidth", 145, 500, 20, null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray([".sub"])));
+        enfocus.core.en_resize.call(null, "\ufdd0'curwidth", 145, 500, null, null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray([".sub"])));
         enfocus.core.en_do__GT_.call(null, enfocus.core.en_add_class.call(null, "blur-highlight"), enfocus.core.chainable_standard.call(null, function(a) {
           return enfocus.core.setTimeout.call(null, function() {
             return function() {
@@ -13371,7 +13724,7 @@ enfocus.demo.site.start = function() {
     enfocus.core.en_listen.call(null, "\ufdd0'mouseleave", function(a) {
       var b = enfocus.core.nodes__GT_coll.call(null, a.currentTarget);
       cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-        enfocus.core.en_resize.call(null, "\ufdd0'curwidth", 0, 500, 20, null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray([".sub"])));
+        enfocus.core.en_resize.call(null, "\ufdd0'curwidth", 0, 500, null, null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray([".sub"])));
         return a
       }, b));
       return a.currentTarget
@@ -13423,8 +13776,8 @@ enfocus.demo.site.gstarted_page = function() {
       var a = enfocus.core.nodes__GT_coll.call(null, document);
       cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
         (function(a) {
-          return enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, 20, null).call(null, a, function(a) {
-            return enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, 20, null).call(null, a)
+          return enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, null, null).call(null, a, function(a) {
+            return enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, null, null).call(null, a)
           })
         }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#rz-demo"])));
         return a
@@ -13880,7 +14233,7 @@ enfocus.demo.site.doc_effect = function() {
 enfocus.demo.site.resize_demo = function() {
   var a = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-    enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, 20, enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, 20, null)).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#rz-demo"])));
+    enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, null, null), null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#rz-demo"])));
     return a
   }, a));
   return document
@@ -13888,7 +14241,7 @@ enfocus.demo.site.resize_demo = function() {
 enfocus.demo.site.move_demo = function() {
   var a = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-    enfocus.core.en_move.call(null, 300, "\ufdd0'cury", 500, 20, enfocus.core.en_move.call(null, -20, "\ufdd0'cury", 500, 20, null)).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#mv-demo"])));
+    enfocus.core.en_move.call(null, 300, "\ufdd0'cury", 500, enfocus.core.en_move.call(null, -20, "\ufdd0'cury", 500, null, null), null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#mv-demo"])));
     return a
   }, a));
   return document
@@ -13896,7 +14249,7 @@ enfocus.demo.site.move_demo = function() {
 enfocus.demo.site.fade_demo = function() {
   var a = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-    enfocus.core.en_fade_out.call(null, 500, 20, enfocus.core.en_fade_in.call(null, 500, 20, null)).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#fade-demo"])));
+    enfocus.core.en_fade_out.call(null, 500, enfocus.core.en_fade_in.call(null, 500, null, null), null).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#fade-demo"])));
     return a
   }, a));
   return document
@@ -13904,14 +14257,14 @@ enfocus.demo.site.fade_demo = function() {
 enfocus.demo.site.delay_demo = function() {
   var a = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
-    enfocus.core.en_do__GT_.call(null, enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, 20, null), enfocus.core.chainable_standard.call(null, function(a) {
+    enfocus.core.en_do__GT_.call(null, enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, null, null), enfocus.core.chainable_standard.call(null, function(a) {
       return enfocus.core.setTimeout.call(null, function() {
         return function() {
-          var a = enfocus.core.nodes__GT_coll.call(null, enfocus.core.en_resize.call(null, 50, "\ufdd0'curheight", 500, 20, null));
+          var a = enfocus.core.nodes__GT_coll.call(null, enfocus.core.en_resize.call(null, 50, "\ufdd0'curheight", 500, null, null));
           cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
             return a
           }, a));
-          return enfocus.core.en_resize.call(null, 50, "\ufdd0'curheight", 500, 20, null)
+          return enfocus.core.en_resize.call(null, 50, "\ufdd0'curheight", 500, null, null)
         }().call(null, a)
       }, 2E3)
     })).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#delay-demo"])));
@@ -13923,8 +14276,8 @@ enfocus.demo.site.chain_demo = function() {
   var a = enfocus.core.nodes__GT_coll.call(null, document);
   cljs.core.doall.call(null, cljs.core.map.call(null, function(a) {
     (function(a) {
-      return enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, 20, null).call(null, a, function(a) {
-        return enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, 20, null).call(null, a)
+      return enfocus.core.en_resize.call(null, 200, "\ufdd0'curheight", 500, null, null).call(null, a, function(a) {
+        return enfocus.core.en_resize.call(null, 5, "\ufdd0'curheight", 500, null, null).call(null, a)
       })
     }).call(null, enfocus.core.css_select.call(null, "", a, cljs.core.Vector.fromArray(["#chain-demo"])));
     return a
